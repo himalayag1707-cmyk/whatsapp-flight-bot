@@ -71,7 +71,19 @@ async function searchFlights(data) {
       // Transit visa warning
       let visa = '';
       if (f.layovers?.length) {
-        visa = `(Transit: ${f.layovers.map(l => l.name).join(', ')})`;
+        const layoverStr = f.layovers.map(l => l.name).join(', ');
+        const layoverStrLower = layoverStr.toLowerCase();
+        
+        let visaWarning = "";
+        if (layoverStrLower.includes("united states") || layoverStrLower.includes("new york") || layoverStrLower.includes("jfk") || layoverStrLower.includes("newark") || layoverStrLower.includes("dulles")) {
+            visaWarning = " (🛂 USA Transit Visa Req.)";
+        } else if (layoverStrLower.includes("london") || layoverStrLower.includes("heathrow") || layoverStrLower.includes("gatwick")) {
+            visaWarning = " (🛂 UK Transit Visa Req.)";
+        } else if (layoverStrLower.includes("frankfurt") || layoverStrLower.includes("munich") || layoverStrLower.includes("paris") || layoverStrLower.includes("zurich") || layoverStrLower.includes("amsterdam")) {
+            visaWarning = " (🛂 Schengen Transit Req.)";
+        }
+
+        visa = `${visaWarning} (Transit: ${layoverStr})`;
       }
 
       // Air India 46kg override
