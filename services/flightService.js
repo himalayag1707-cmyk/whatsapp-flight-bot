@@ -122,16 +122,29 @@ function finalizeAndPrioritize(results, data) {
     // Sort by price initially
     processed.sort((a, b) => a.price - b.price);
 
-    // AIR INDIA PRIORITIZATION
+    // AIR INDIA / PREFERRED AIRLINE PRIORITIZATION
     if (processed.length > 0) {
         const lowestPrice = processed[0].price;
-        const acceptablePremium = lowestPrice * 1.15; // 15% tolerance
-
-        const airIndiaFlights = processed.filter(f => f.flights[0].airline.toLowerCase().includes('air india') && f.price <= acceptablePremium);
+        const acceptablePremium = lowestPrice * 1.15; // 15% tolerance for automatic nudge
         
-        if (airIndiaFlights.length > 0) {
-            processed = processed.filter(f => !airIndiaFlights.includes(f));
-            processed = [...airIndiaFlights, ...processed];
+        const prefAir = (data.preferred_airline || "Air India").toLowerCase();
+
+        // 1. Find flights matching preferred airline
+        const preferredFlights = processed.filter(f => f.flights[0].airline.toLowerCase().includes(prefAir));
+        
+        // 2. Decide if we should move them to top
+        // Rule: If user EXPLICITLY requested it (data.preferred_airline exists), move ALL to top.
+        // Rule: If it's just the automatic nudge, only move if within 15% tolerance.
+        let toMove = [];
+        if (data.preferred_airline) {
+            toMove = preferredFlights; // Strict priority
+        } else {
+            toMove = preferredFlights.filter(f => f.price <= acceptablePremium); // 15% rule
+        }
+
+        if (toMove.length > 0) {
+            processed = processed.filter(f => !toMove.includes(f));
+            processed = [...toMove, ...processed];
         }
     }
 
