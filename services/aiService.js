@@ -11,54 +11,89 @@ function getAiServicePrompt(user) {
   const now = new Date();
   const dateStr = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   
-  // Build known data context so AI never forgets what it already knows
   const known = user.data || {};
-  const knownContext = [
-    known.from ? `From: ${known.from}` : null,
-    known.to ? `To: ${known.to}` : null,
-    known.date ? `Date: ${known.date}` : null,
-    known.passengers ? `Passengers: ${known.passengers}` : null,
-    known.preferred_airline ? `Preferred Airline: ${known.preferred_airline}` : null,
-  ].filter(Boolean).join(', ');
+  
+  // Explicit state injected into prompt so AI NEVER forgets
+  const knownLines = [];
+  if (known.from) knownLines.push(`- FROM airport: ${known.from} (IATA code, already confirmed)`);
+  if (known.to) knownLines.push(`- TO airport: ${known.to} (IATA code, already confirmed)`);
+  if (known.date) knownLines.push(`- DATE: ${known.date} (already confirmed)`);
+  if (known.passengers) knownLines.push(`- PASSENGERS: ${known.passengers} (already confirmed)`);
+  if (known.preferred_airline) knownLines.push(`- PREFERRED AIRLINE: ${known.preferred_airline} (user explicitly requested)`);
+  if (known.targetFlightDetails) knownLines.push(`- SCREENSHOT FLIGHT: ${JSON.stringify(known.targetFlightDetails)} (from user's screenshot)`);
+
+  const knownBlock = knownLines.length > 0
+    ? `\n=== ALREADY CONFIRMED DATA (DO NOT ASK AGAIN) ===\n${knownLines.join('\n')}\n================================================\n`
+    : '';
 
   const screenshotAlreadySent = user.messages && user.messages.some(m => m.hasImage);
-  
-  return `You are Manoj, a friendly and professional travel agent for Hopspot Travel.
+  const luggageNudgeDone = user.data?.luggageNudgeDone || false;
+  const screenshotNudgeDone = user.data?.screenshotNudgeDone || screenshotAlreadySent;
+
+  return `You are Manoj, a sharp and friendly travel agent for Hopspot Travel.
 CURRENT DATE: ${dateStr}.
-${knownContext ? `ALREADY KNOWN: ${knownContext}` : ''}
+${knownBlock}
+=== YOUR DECISION TREE (follow STRICTLY in order) ===
 
-CRITICAL RULES (follow in exact order):
+STEP 1 — CHECK KNOWN DATA:
+You already have the data listed in ALREADY CONFIRMED above.
+NEVER ask for data you already have. This is the most important rule.
 
-1. MEMORY: You already know the details listed in ALREADY KNOWN above. NEVER ask for details you already have. Do NOT forget previous information when a user declines an option.
+STEP 2 — SCREENSHOT HANDLING (if user sent an image):
+If an image was sent, you MUST extract from it:
+  • Route (from/to city names → convert to IATA) → set fromCode, toCode
+  • Date → set date as YYYY-MM-DD
+  • Airline name + departure time → set targetFlightDetails.airline and targetFlightDetails.departureTime
+  • Passengers if visible (else default 1)
+After extracting, move directly to STEP 4 or 5. Do NOT ask for details already in the screenshot.
 
-2. SCREENSHOT VISION: If the user sends a screenshot of a flight listing, extract ALL visible info:
-   - Departure city & arrival city → set "fromCode" and "toCode" (as IATA codes)
-   - Travel date → set "date" (YYYY-MM-DD)
-   - Number of passengers (default to 1 if not visible)
-   - Exact airline name → set "targetFlightDetails.airline"
-   - Exact departure time (HH:MM) → set "targetFlightDetails.departureTime"
-   - After extraction, DO NOT ask for more details. Proceed directly to STEP 4 (luggage nudge) or STEP 5 (search).
+STEP 3 — COLLECT MISSING INFO (only if truly missing):
+If any of FROM, TO, DATE, PASSENGERS is missing, ask for ONE missing item at a time.
+Example: If you have FROM+TO+DATE but not PASSENGERS, just ask "How many passengers?"
+Do NOT ask for city or date if you already have them.
 
-3. FLOW: If you do NOT have route/date/passengers, ask for what's missing ONE at a time. Never ask for info you already have.
+STEP 4 — AIRLINE PREFERENCE (ask ONCE only, only for specific routes):
+${luggageNudgeDone ? 'LUGGAGE NUDGE ALREADY DONE. Skip this step.' :
+`If TO is BHX, LHR, or YYZ, ask ONCE: "For this route, many travellers prefer Air India for its 46kg check-in baggage allowance (2 bags of 23kg). Would you like to see Air India options?"
+  - If YES → set preferred_airline: "Air India", luggageNudgeDone: true
+  - If NO  → set luggageNudgeDone: true, search_flights_now: true`}
 
-4. AIR INDIA 46KG NUDGE (ASK ONLY ONCE): If destination is Birmingham (BHX), London Heathrow (LHR), or Toronto (YYZ), ask ONCE: "Would you prefer flights with 46kg check-in luggage (2 bags of 23kg), highly recommended for this route?" If YES → set "preferred_airline": "Air India". If NO → immediately set "search_flights_now": true. Do NOT ask again.
+STEP 5 — SCREENSHOT NUDGE (ask ONCE only):
+${screenshotNudgeDone ? 'SCREENSHOT NUDGE ALREADY DONE OR SCREENSHOT ALREADY SENT. Skip directly to search.' :
+`If all details are collected and no screenshot has been shared, ask ONCE:
+"Do you have a screenshot of a cheaper flight you'd like me to beat?"
+  - If YES → wait for screenshot
+  - If NO  → set screenshotNudgeDone: true, search_flights_now: true`}
 
-5. SCREENSHOT NUDGE (ASK ONLY ONCE, SKIP IF SCREENSHOT ALREADY SENT): ${screenshotAlreadySent ? 'USER ALREADY SENT A SCREENSHOT. DO NOT ASK FOR ANOTHER ONE. Skip directly to search.' : 'When you have all details, ask once: "Do you have a screenshot of a lower price to beat?" If YES, wait. If NO, set "search_flights_now": true.'}
+STEP 6 — INLINE AIRLINE REQUEST:
+If user says "show me only X airline" or "I want X airline" → set preferred_airline to that airline, set search_flights_now: true immediately. Do NOT ask any more questions.
 
-6. SEARCH: Set "search_flights_now": true when you have route + date + passengers and screenshot nudge is done.
+STEP 7 — TRIGGER SEARCH:
+When FROM + TO + DATE + PASSENGERS are all known AND steps 4+5 are done → set search_flights_now: true.
 
-7. NO "TODAY": Never start a reply with the word "today".
+=== ABSOLUTE RULES ===
+• ABSOLUTELY BAN THE WORD "TODAY": Never use the word "today" anywhere in your response. Not at the start, middle, or end. No exceptions.
+• NEVER ask for info you already have
+• NEVER re-ask after user declines an option (46kg, screenshot, etc.)
+• Keep replies short and natural, like a real travel agent WhatsApp message
+• When in doubt about what to do next → trigger search
 
-JSON Output (always return valid JSON):
+=== JSON OUTPUT FORMAT (always valid JSON) ===
 {
-  "reply": "Short, friendly message. Never repeat what the user just said.",
+  "reply": "Short WhatsApp-style message",
   "data_updates": {
-    "fromCode": "IATA code or null",
-    "toCode": "IATA code or null",
+    "fromCode": "IATA or null",
+    "toCode": "IATA or null",
     "date": "YYYY-MM-DD or null",
     "passengers": null,
     "preferred_airline": "Airline name or null",
-    "targetFlightDetails": { "airline": "Name", "departureTime": "HH:MM", "flightNumber": "" }
+    "luggageNudgeDone": false,
+    "screenshotNudgeDone": false,
+    "targetFlightDetails": {
+      "airline": "Exact airline name from screenshot",
+      "departureTime": "HH:MM from screenshot",
+      "flightNumber": "Flight code if visible"
+    }
   },
   "search_flights_now": false
 }`;
@@ -67,16 +102,20 @@ JSON Output (always return valid JSON):
 async function processWithAI(user, userInput, base64Image) {
   if (!openai) return null;
   try {
+    // Only keep last 8 messages to avoid token bloat
     const chatHistory = user.messages
       .filter(m => m.text && m.text.length > 0)
-      .slice(-10) // Only last 10 messages to avoid token overflow
+      .slice(-8)
       .map(m => ({
         role: m.role === 'bot' ? 'assistant' : 'user',
         content: m.text
       }));
 
-    // Construct the message with image support
-    const userMessageContent = [{ type: "text", text: userInput || "Please look at this flight screenshot and extract all the details." }];
+    const userMessageContent = [{ 
+      type: "text", 
+      text: userInput || (base64Image ? "Please extract all flight details from this screenshot." : "Hello")
+    }];
+    
     if (base64Image) {
       userMessageContent.push({
         type: "image_url",
@@ -91,27 +130,39 @@ async function processWithAI(user, userInput, base64Image) {
         ...chatHistory,
         { role: "user", content: userMessageContent }
       ],
-      temperature: 0.2, // Lower temperature = more consistent, less creative mistakes
+      temperature: 0.1, // Very low — maximum consistency
       response_format: { type: "json_object" }
     });
 
     const aiOutput = JSON.parse(response.choices[0].message.content);
-    
-    // Clean up null strings from data_updates
     const parsed = aiOutput.data_updates || {};
-    Object.keys(parsed).forEach(k => {
-      if (parsed[k] === "null" || parsed[k] === null || parsed[k] === "") {
-        delete parsed[k];
+
+    // Strip nulls and empty strings so they don't overwrite real data
+    const cleanParsed = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      if (v !== null && v !== "null" && v !== "" && v !== undefined) {
+        if (typeof v === 'object' && !Array.isArray(v)) {
+          // For nested objects (like targetFlightDetails), strip nulls inside too
+          const inner = {};
+          for (const [ik, iv] of Object.entries(v)) {
+            if (iv !== null && iv !== "null" && iv !== "" && iv !== undefined) inner[ik] = iv;
+          }
+          if (Object.keys(inner).length > 0) cleanParsed[k] = inner;
+        } else {
+          cleanParsed[k] = v;
+        }
       }
-    });
+    }
+
+    console.log(`[AI Output]: reply="${aiOutput.reply?.substring(0, 60)}" search=${aiOutput.search_flights_now} parsed=${JSON.stringify(cleanParsed)}`);
 
     return {
       reply: aiOutput.reply,
-      parsed,
+      parsed: cleanParsed,
       searchFlightsNow: !!aiOutput.search_flights_now
     };
   } catch (err) {
-    console.error("AI Error:", err);
+    console.error("AI Error:", err.message);
     return null;
   }
 }

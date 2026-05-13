@@ -3,154 +3,185 @@ const { searchMystifly } = require('./mystiflyService');
 
 async function searchFlights(data) {
   try {
-    // 1. Try Mystifly Primary (Professional GDS/LCC Data)
+    // ── 1. Mystifly Primary (Professional GDS Data) ─────────────────────────
     if (process.env.MYSTIFLY_USERNAME) {
-        console.log(`[Flight Service]: Searching Mystifly for ${data.from} -> ${data.to}`);
-        const mystiflyResults = await searchMystifly(data);
-        if (mystiflyResults.length > 0) {
-            // Transform Mystifly format to match bot's display format
-            const transformed = mystiflyResults.map(f => ({
-                flights: [{
-                    airline: f.airline,
-                    flight_number: f.flight_number,
-                    departure_airport: { time: f.depTime },
-                    arrival_airport: { time: f.arrTime }
-                }],
-                price: f.price,
-                total_duration: f.duration,
-                luggage: f.luggage,
-                source: "Mystifly"
-            }));
-            return finalizeAndPrioritize(transformed, data);
-        }
+      console.log(`[Flight Service]: Trying Mystifly for ${data.from} → ${data.to}`);
+      const mystiflyResults = await searchMystifly(data);
+      if (mystiflyResults.length > 0) {
+        const transformed = mystiflyResults.map(f => ({
+          flights: [{
+            airline: f.airline,
+            flight_number: f.flight_number,
+            departure_airport: { time: f.depTime },
+            arrival_airport: { time: f.arrTime }
+          }],
+          price: f.price,
+          total_duration: f.duration,
+          luggage: f.luggage,
+          visa: '',
+          source: 'Mystifly'
+        }));
+        return finalizeAndPrioritize(transformed, data);
+      }
     }
 
-    // 2. Fallback to SerpApi (Google Flights)
-    console.log(`[Flight Service]: Running SerpApi Fallback for ${data.from} -> ${data.to}`);
+    // ── 2. SerpApi Fallback (Google Flights) ────────────────────────────────
+    console.log(`[Flight Service]: Searching SerpApi for ${data.from} → ${data.to} on ${data.date}`);
 
     const params = {
-        engine: "google_flights",
-        departure_id: data.from,
-        arrival_id: data.to,
-        outbound_date: data.date,
-        type: 2, 
-        adults: data.passengers || 1, 
-        currency: "INR",
-        hl: "en",
-        gl: "in",
-        api_key: process.env.SERPAPI_KEY
+      engine: 'google_flights',
+      departure_id: data.from,
+      arrival_id: data.to,
+      outbound_date: data.date,
+      type: 2,                          // One-way
+      adults: parseInt(data.passengers) || 1,
+      currency: 'INR',
+      hl: 'en',
+      gl: 'in',
+      api_key: process.env.SERPAPI_KEY
     };
-    
+
     if (data.preference === 'Premium') params.travel_class = 3;
 
-    const res = await axios.get("https://serpapi.com/search.json", { params });
-    const all = [...(res.data.best_flights || []), ...(res.data.other_flights || [])];
-    
-    // Filter unique flights and add metadata
+    const res = await axios.get('https://serpapi.com/search.json', { params });
+    const raw = [...(res.data.best_flights || []), ...(res.data.other_flights || [])];
+
+    console.log(`[Flight Service]: SerpApi returned ${raw.length} raw results`);
+
+    // ── 3. Deduplicate & enrich ──────────────────────────────────────────────
     const results = [];
     const seen = new Set();
-    for (const f of all) {
-        if (!f.flights || !f.flights[0] || typeof f.price !== 'number') continue;
-        const first = f.flights[0];
-        const flightNum = `${first.airline}_${first.flight_number}_${first.departure_airport?.time}`;
-        
-        if (!seen.has(flightNum)) {
-            seen.add(flightNum);
-            
-            // Extract Visa and Luggage from SerpApi extensions
-            let luggageInfo = f.luggage || "Not specified";
-            let visaInfo = f.visa || "";
-            if (f.extensions) {
-                const extStr = f.extensions.join(" ").toLowerCase();
-                if (extStr.includes("baggage included") || extStr.includes("check-in baggage")) {
-                    luggageInfo = "Included";
-                } else if (extStr.includes("no check-in baggage")) {
-                    luggageInfo = "Not Included";
-                }
-            }
-            if (f.layovers && f.layovers.length > 0) {
-                const layoverStr = f.layovers.map(l => l.name).join(", ");
-                visaInfo = ` (Transit: ${layoverStr})`;
-            }
 
-            f.original_price = f.price;
-            f.luggage = luggageInfo;
-            f.visa = visaInfo;
-            
-            if (data.preferred_airline && data.preferred_airline.toLowerCase() === 'air india' && first.airline.toLowerCase().includes('air india')) {
-                f.luggage = "46kg (2x23kg)";
-            }
-            results.push(f);
-        }
+    for (const f of raw) {
+      if (!f.flights?.[0] || typeof f.price !== 'number') continue;
+
+      const first = f.flights[0];
+      const key = `${first.airline}_${first.departure_airport?.time}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Luggage from SerpApi extensions
+      let luggage = 'Not specified';
+      if (f.extensions?.length) {
+        const ext = f.extensions.join(' ').toLowerCase();
+        if (ext.includes('check-in baggage') || ext.includes('baggage included')) luggage = 'Included';
+        else if (ext.includes('no check-in') || ext.includes('no baggage')) luggage = 'Not included';
+      }
+
+      // Transit visa warning
+      let visa = '';
+      if (f.layovers?.length) {
+        visa = `(Transit: ${f.layovers.map(l => l.name).join(', ')})`;
+      }
+
+      // Air India 46kg override
+      if (data.preferred_airline?.toLowerCase() === 'air india'
+          && first.airline.toLowerCase().includes('air india')) {
+        luggage = '46kg (2×23kg)';
+      }
+
+      results.push({ ...f, luggage, visa });
     }
 
     return finalizeAndPrioritize(results, data);
 
   } catch (err) {
-    console.error("[Flight Service Error]:", err.message);
+    console.error('[Flight Service Error]:', err.message);
     return [];
   }
 }
 
+// ── Shared prioritization & filtering logic ──────────────────────────────────
 function finalizeAndPrioritize(results, data) {
-    let processed = [...results];
+  let pool = [...results];
 
-    // Apply any additional dynamic markup from Admin/AI
-    if (data.price_markup && !isNaN(data.price_markup)) {
-        const markupMultiplier = 1 + (Number(data.price_markup) / 100);
-        processed.forEach(f => { f.price = Math.floor(f.price * markupMultiplier); });
+  // Apply markup
+  if (data.price_markup && !isNaN(data.price_markup)) {
+    const mult = 1 + Number(data.price_markup) / 100;
+    pool.forEach(f => { f.price = Math.floor(f.price * mult); });
+  }
+
+  // ── EXACT MATCH: find the specific flight from a screenshot ──────────────
+  if (data.targetFlightDetails) {
+    const { airline: tAir = '', departureTime: tTime = '', flightNumber: tNum = '' } = data.targetFlightDetails;
+
+    if (tAir || tTime) {
+      const tAirLow = tAir.toLowerCase().trim();
+      const tTimeTrim = tTime.replace(':', '').trim(); // normalise "01:45" → "0145"
+
+      const exactMatches = pool.filter(f => {
+        const leg = f.flights[0];
+        const legAir = leg.airline.toLowerCase();
+        const legTime = (leg.departure_airport?.time || '').replace(':', '').trim();
+        const legNum = (leg.flight_number || '').toLowerCase();
+
+        const airMatch = tAirLow
+          ? (legAir.includes(tAirLow) || tAirLow.includes(legAir))
+          : true;
+
+        const timeMatch = tTimeTrim
+          ? (legTime === tTimeTrim || legTime.includes(tTimeTrim) || tTimeTrim.includes(legTime))
+          : true;
+
+        const numMatch = tNum
+          ? legNum.includes(tNum.toLowerCase())
+          : true;
+
+        // Require BOTH airline AND (time OR flight number) to match
+        return airMatch && (timeMatch || numMatch);
+      });
+
+      if (exactMatches.length > 0) {
+        console.log(`[Flight Service]: Exact screenshot match found — ${exactMatches.length} result(s)`);
+        return exactMatches.slice(0, 3); // Show up to 3 matches of that exact flight/airline
+      }
+
+      // No exact match — fall through to show all results with preferred airline nudged up
+      console.log(`[Flight Service]: No exact match for "${tAir} ${tTime}" — showing all results`);
     }
+  }
 
-    // EXACT MATCH FILTERING (From Screenshot)
-    if (data.targetFlightDetails) {
-        const target = data.targetFlightDetails;
-        const targetTime = target.departureTime || "";
-        const targetAir = (target.airline || "").toLowerCase();
-        
-        const exactMatches = processed.filter(f => {
-            const leg = f.flights[0];
-            const airMatch = leg.airline.toLowerCase().includes(targetAir) || targetAir.includes(leg.airline.toLowerCase());
-            const timeMatch = (leg.departure_airport?.time || "").includes(targetTime);
-            return airMatch && timeMatch;
-        });
+  // ── Sort: Common Sense (Direct first, then price, then duration) ──────
+  pool.sort((a, b) => {
+    const aDirect = (a.flights?.[0]?.extensions || []).some(e => e.toLowerCase().includes('non-stop'));
+    const bDirect = (b.flights?.[0]?.extensions || []).some(e => e.toLowerCase().includes('non-stop'));
+    
+    if (aDirect && !bDirect) return -1;
+    if (!aDirect && bDirect) return 1;
+    
+    // Price tie-breaker
+    if (Math.abs(a.price - b.price) > 500) return a.price - b.price;
+    
+    // Duration tie-breaker (e.g. 15h 30m -> 930 mins)
+    const getMins = (d) => {
+      if (!d) return 9999;
+      const h = parseInt(d.match(/(\d+)h/)?.[1] || 0);
+      const m = parseInt(d.match(/(\d+)m/)?.[1] || 0);
+      return (h * 60) + m;
+    };
+    return getMins(a.total_duration) - getMins(b.total_duration);
+  });
 
-        if (exactMatches.length > 0) {
-            return exactMatches; 
-        }
+  // ── Preferred airline strict priority ─────────────────────────────────────
+  if (data.preferred_airline) {
+    const prefLow = data.preferred_airline.toLowerCase().trim();
+    const preferred = pool.filter(f => f.flights[0].airline.toLowerCase().includes(prefLow));
+    const others = pool.filter(f => !f.flights[0].airline.toLowerCase().includes(prefLow));
+    pool = [...preferred, ...others]; 
+    console.log(`[Flight Service]: Strict Priority for "${data.preferred_airline}" — ${preferred.length} flights moved to top`);
+  } else {
+    // Auto nudge: Air India within 15% of cheapest
+    if (pool.length > 0) {
+      const lowestPrice = pool[0].price;
+      const cap = lowestPrice * 1.15;
+      const aiFlights = pool.filter(f => f.flights[0].airline.toLowerCase().includes('air india') && f.price <= cap);
+      if (aiFlights.length > 0) {
+        pool = [...aiFlights, ...pool.filter(f => !aiFlights.includes(f))];
+      }
     }
+  }
 
-    // Sort by price initially
-    processed.sort((a, b) => a.price - b.price);
-
-    // AIR INDIA / PREFERRED AIRLINE PRIORITIZATION
-    if (processed.length > 0) {
-        const lowestPrice = processed[0].price;
-        const acceptablePremium = lowestPrice * 1.15; // 15% tolerance for automatic nudge
-        
-        const prefAir = (data.preferred_airline || "Air India").toLowerCase();
-
-        // 1. Find flights matching preferred airline
-        const preferredFlights = processed.filter(f => f.flights[0].airline.toLowerCase().includes(prefAir));
-        
-        // 2. Decide if we should move them to top
-        // Rule: If user EXPLICITLY requested it (data.preferred_airline exists), move ALL to top.
-        // Rule: If it's just the automatic nudge, only move if within 15% tolerance.
-        let toMove = [];
-        if (data.preferred_airline) {
-            toMove = preferredFlights; // Strict priority
-        } else {
-            toMove = preferredFlights.filter(f => f.price <= acceptablePremium); // 15% rule
-        }
-
-        if (toMove.length > 0) {
-            processed = processed.filter(f => !toMove.includes(f));
-            processed = [...toMove, ...processed];
-        }
-    }
-
-    return processed.slice(0, 6);
+  return pool.slice(0, 6);
 }
 
-module.exports = {
-  searchFlights
-};
+module.exports = { searchFlights };
