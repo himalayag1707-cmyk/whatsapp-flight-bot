@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { searchMystifly } = require('./mystiflyService');
+const { searchMMT } = require('./skyscannerService');
 
 async function searchFlights(data) {
   try {
@@ -22,6 +23,18 @@ async function searchFlights(data) {
           source: 'Mystifly'
         }));
         return finalizeAndPrioritize(transformed, data);
+      }
+    }
+
+    // ── 1.5 MakeMyTrip via Skyscanner (NEW PRIMARY) ─────────────────────────
+    if (process.env.RAPIDAPI_KEY) {
+      console.log(`[Flight Service]: 🔍 Attempting PRIORITY search: MakeMyTrip...`);
+      const mmtResults = await searchMMT(data);
+      if (mmtResults && mmtResults.length > 0) {
+        console.log(`[Flight Service]: 🌟 SUCCESS! Retrieved ${mmtResults.length} exact results from MakeMyTrip.`);
+        return finalizeAndPrioritize(mmtResults, data);
+      } else {
+        console.log(`[Flight Service]: ⚠️ MMT failed or no results found. Falling back to SerpApi.`);
       }
     }
 

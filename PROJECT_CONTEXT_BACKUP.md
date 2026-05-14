@@ -14,9 +14,9 @@
 - **WhatsApp Integration:** Meta Cloud API (Webhooks).
 - **Intelligence:** OpenAI GPT-4o for natural language and screenshot processing.
 - **Data Sources:** 
-  - Mystifly (Professional GDS - Primary).
-  - SerpApi / Google Flights (Fallback).
-  - *Planned:* MakeMyTrip Scraper (RapidAPI).
+  - MakeMyTrip (Skyscanner via RapidAPI - **Primary Source**).
+  - Mystifly (Professional GDS - Secondary).
+  - SerpApi / Google Flights (Fallback if MMT fails).
 - **Persistence:** Local JSON files (`data/`) on Railway (Note: Ephemeral, needs DB migration to MongoDB/PostgreSQL).
 - **Admin Dashboard:** Custom-built dashboard to monitor chats and human-override.
 
@@ -35,7 +35,7 @@
 - **CRM Integration:** Implemented `userStore.js` to track multi-step states (ASK_ROUTE, ASK_DATE, SELECT_FLIGHT, etc.).
 
 ## 5. Future Roadmap & Pending Features
-- **MakeMyTrip Integration:** Use RapidAPI Scrapers to get *exact* MMT prices and baggage info.
+- **MakeMyTrip Integration:** Successfully implemented using Skyscanner44 RapidAPI. Bot now tries MMT first for exact website parity.
 - **Database Migration:** Move from JSON files to a real database to prevent data loss on Railway restarts.
 - **Multi-Passenger Handling:** Improve the extraction of multiple names from a single text block.
 - **Payment Automation:** Better verification of Razorpay/UPI status.
