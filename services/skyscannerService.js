@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 /**
- * Specifically searches for MakeMyTrip prices via the Skyscanner44 RapidAPI.
+ * Specifically searches for MakeMyTrip prices via the Skyscanner Flights & Travel API.
  */
 async function searchMMT(data) {
   if (!process.env.RAPIDAPI_KEY) {
@@ -11,7 +11,7 @@ async function searchMMT(data) {
 
   const options = {
     method: 'GET',
-    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/search-one-way',
+    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/v1/flights/search-one-way',
     params: {
       fromId: data.from,
       toId: data.to,
@@ -30,7 +30,7 @@ async function searchMMT(data) {
     console.log(`[Skyscanner Service]: Requesting MMT data for ${data.from} -> ${data.to}`);
     const response = await axios.request(options);
     
-    // The skyscanner44 API structure can vary, but usually it's under itineraries.buckets
+    // The API structure usually puts itineraries under buckets
     const itineraries = response.data.itineraries?.buckets || [];
     let mmtResults = [];
 

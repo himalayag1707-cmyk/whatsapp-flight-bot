@@ -52,9 +52,9 @@ If any of FROM, TO, DATE, PASSENGERS is missing, ask for ONE missing item at a t
 Example: If you have FROM+TO+DATE but not PASSENGERS, just ask "How many passengers?"
 Do NOT ask for city or date if you already have them.
 
-STEP 4 — AIRLINE PREFERENCE (ask ONCE only, only for specific routes):
+STEP 4 — LUGGAGE PREFERENCE (ask ONCE only, only for specific routes):
 ${luggageNudgeDone ? 'LUGGAGE NUDGE ALREADY DONE. Skip this step.' :
-`If TO is BHX, LHR, or YYZ, ask ONCE: "For this route, many travellers prefer Air India for its 46kg check-in baggage allowance (2 bags of 23kg). Would you like to see Air India options?"
+`If TO is BHX, LHR, or YYZ, ask ONCE: "For this route, would you like me to find options with a higher baggage allowance (46kg / 2 bags)? 🧳"
   - If YES → set preferred_airline: "Air India", luggageNudgeDone: true
   - If NO  → set luggageNudgeDone: true, search_flights_now: true`}
 
