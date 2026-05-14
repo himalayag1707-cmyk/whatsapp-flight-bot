@@ -23,7 +23,7 @@
 ## 3. Core Business Logic (The "Manoj" Rules)
 - **The "Today" Ban:** Manoj must NEVER use the word "today" in responses.
 - **Air India Nudge:** On specific routes (UK/Canada), Manoj MUST nudge users toward Air India for the 46kg baggage allowance.
-- **Screenshot Logic:** If a user sends a screenshot of a flight, Manoj must extract the details and find that exact flight to "beat" the price.
+- **Screenshot Logic:** If a user sends a screenshot of a flight, Manoj must extract the details, set `search_flights_now: true` immediately, and find that exact flight to "beat" the price.
 - **Admin Commands:** 
   - `PAUSE/RESUME`: Toggle bot control.
   - `CONFIRM`: Verify payment and trigger E-Ticket generation.
