@@ -30,39 +30,48 @@ async function searchMMT(data) {
     console.log(`[Skyscanner Service]: Requesting MMT data for ${data.from} -> ${data.to}`);
     const response = await axios.request(options);
     
-    // The API structure usually puts itineraries under buckets
-    const itineraries = response.data.itineraries?.buckets || [];
+    // Some Skyscanner APIs return 'itineraries' as a direct array, others in buckets
+    const allItineraries = response.data.itineraries || [];
+    const buckets = response.data.itineraries?.buckets || [];
+    
+    // Combine all potential items
+    let allItems = [];
+    if (Array.isArray(allItineraries)) allItems = [...allItineraries];
+    buckets.forEach(b => { if (b.items) allItems = [...allItems, ...b.items]; });
+
     let mmtResults = [];
 
-    itineraries.forEach(bucket => {
-      if (bucket.items && Array.isArray(bucket.items)) {
-        bucket.items.forEach(item => {
-          // Look for an agent that is MakeMyTrip
-          const mmtOption = item.priceOptions?.find(opt => 
-            opt.agents?.some(agent => agent.name.toLowerCase().includes('makemytrip'))
-          );
-
-          if (mmtOption) {
-            // Transform into our internal flight format
+    allItems.forEach(item => {
+      // Find agents for this flight
+      item.priceOptions?.forEach(opt => {
+        opt.agents?.forEach(agent => {
+          // DEBUG LOG: See what agents are available
+          // console.log(`[Skyscanner Debug]: Found agent: ${agent.name}`);
+          
+          if (agent.name.toLowerCase().includes('makemytrip')) {
             const leg = item.legs?.[0];
-            if (!leg) return;
-
-            mmtResults.push({
-              flights: leg.segments.map(s => ({
-                airline: s.marketingCarrier.name,
-                flight_number: `${s.marketingCarrier.displayCode || ''} ${s.flightNumber}`,
-                departure_airport: { time: (s.departure || "").split('T')[1]?.substring(0, 5) || "N/A" },
-                arrival_airport: { time: (s.arrival || "").split('T')[1]?.substring(0, 5) || "N/A" }
-              })),
-              price: mmtOption.price,
-              total_duration: leg.durationInMinutes,
-              luggage: "MMT Standard (Verified)",
-              source: 'MakeMyTrip'
-            });
+            if (leg) {
+              mmtResults.push({
+                flights: leg.segments.map(s => ({
+                  airline: s.marketingCarrier.name,
+                  flight_number: `${s.marketingCarrier.displayCode || ''} ${s.flightNumber}`,
+                  departure_airport: { time: (s.departure || "").split('T')[1]?.substring(0, 5) || "N/A" },
+                  arrival_airport: { time: (s.arrival || "").split('T')[1]?.substring(0, 5) || "N/A" }
+                })),
+                price: opt.price,
+                total_duration: leg.durationInMinutes,
+                luggage: "MMT Standard (Verified)",
+                source: 'MakeMyTrip'
+              });
+            }
           }
         });
-      }
+      });
     });
+
+    if (mmtResults.length === 0) {
+      console.log(`[Skyscanner Service]: No agent matching 'MakeMyTrip' was found in ${allItems.length} results.`);
+    }
 
     return mmtResults;
   } catch (error) {
