@@ -11,7 +11,7 @@ async function searchMMT(data) {
 
   const options = {
     method: 'GET',
-    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/v1/flights/search-one-way',
+    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/flights/searchFlights',
     params: {
       fromId: data.from,
       toId: data.to,

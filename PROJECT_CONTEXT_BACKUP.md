@@ -14,7 +14,7 @@
 - **WhatsApp Integration:** Meta Cloud API (Webhooks).
 - **Intelligence:** OpenAI GPT-4o for natural language and screenshot processing.
 - **Data Sources:** 
-  - MakeMyTrip (via Skyscanner Flights & Travel API - **Primary Source**).
+  - MakeMyTrip (via Skyscanner Flights & Travel API - Endpoint: `/flights/searchFlights`).
   - Mystifly (Professional GDS - Secondary).
   - SerpApi / Google Flights (Fallback if MMT fails).
 - **Persistence:** Local JSON files (`data/`) on Railway (Note: Ephemeral, needs DB migration to MongoDB/PostgreSQL).
