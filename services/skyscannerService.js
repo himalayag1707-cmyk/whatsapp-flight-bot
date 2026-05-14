@@ -11,18 +11,18 @@ async function searchMMT(data) {
 
   const options = {
     method: 'GET',
-    url: 'https://skyscanner44.p.rapidapi.com/search-one-way',
+    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/search-one-way',
     params: {
-      origin: data.from,
-      destination: data.to,
-      departureDate: data.date,
+      fromId: data.from,
+      toId: data.to,
+      departDate: data.date,
       adults: data.passengers || '1',
       currency: 'INR',
       cabinClass: 'economy'
     },
     headers: {
       'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': 'skyscanner44.p.rapidapi.com'
+      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com'
     }
   };
 
