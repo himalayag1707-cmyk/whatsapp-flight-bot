@@ -1,0 +1,6 @@
+node_modules/
+.env
+data/
+crm_data.json
+chat_history.json
+.DS_Store

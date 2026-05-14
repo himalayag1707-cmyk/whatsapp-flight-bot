@@ -66,7 +66,8 @@ async function handleIncomingMessage(mobile, text, base64Image, mediaId) {
       targetUser.state = 'DONE';
       updateUser(targetUser.mobile, targetUser);
       await sendETicketToUser(targetUser.mobile, targetUser);
-      await sendMessage(ADMIN_NUMBER, `E‑Ticket sent to ${targetUser.mobile} (${targetUser.passengerNames[0] || 'User'}) with seats ${seatNumbers}.`);
+      const name = (targetUser.passengerNames && targetUser.passengerNames[0]) || 'User';
+      await sendMessage(ADMIN_NUMBER, `E‑Ticket sent to ${targetUser.mobile} (${name}) with seats ${seatNumbers}.`);
     } else if (cmd === 'PAUSE' && parts.length >= 2) {
       const identifier = parts[1];
       const targetUser = findUserByAny(identifier);
@@ -314,6 +315,13 @@ async function handleIncomingMessage(mobile, text, base64Image, mediaId) {
         await sendBotMessage("I have addressed a message to the senior but I am here if you want any help with your booking!");
       }
       const parsed = aiResult.parsed;
+      // Persist flags to avoid repeated nudges
+      if (parsed.preferred_airline) {
+        user.data.luggageNudgeDone = true; // user was nudged/accepted 46kg option
+      }
+      if (parsed.targetFlightDetails) {
+        user.data.screenshotNudgeDone = true; // exact flight screenshot processed
+      }
       if (parsed.fromCode) user.data.from = parsed.fromCode;
       else if (parsed.fromText) user.data.from = getIATACode(parsed.fromText) || user.data.from;
       if (parsed.toCode) user.data.to = parsed.toCode;

@@ -105,7 +105,7 @@ async function processWithAI(user, userInput, base64Image) {
     // Only keep last 8 messages to avoid token bloat
     const chatHistory = user.messages
       .filter(m => m.text && m.text.length > 0)
-      .slice(-8)
+      .slice(-9, -1) // Get last 8 messages EXCLUDING the current one (which is the last one)
       .map(m => ({
         role: m.role === 'bot' ? 'assistant' : 'user',
         content: m.text

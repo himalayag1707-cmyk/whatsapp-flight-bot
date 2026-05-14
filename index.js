@@ -7,6 +7,16 @@ app.use(express.json());
 app.use(express.static('dashboard/public'));
 
 const PORT = process.env.PORT || 3000;
+const HOST = '0.0.0.0';
+
+// Ensure data directory exists for local persistence
+const fs = require('fs');
+const path = require('path');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir);
+  console.log('📁 Created data directory');
+}
 
 // WhatsApp Verification (Webhook)
 app.get('/webhook', (req, res) => {
@@ -66,11 +76,13 @@ app.post('/webhook', async (req, res) => {
     }
 
     if (text || base64Image || mediaId) {
+      console.log(`📩 Incoming message from ${from}: ${text?.substring(0, 50)}...`);
       await handleIncomingMessage(from, text, base64Image, mediaId);
     }
 
   } catch (err) {
-    console.error("WEBHOOK ERROR:", err);
+    console.error("❌ WEBHOOK ERROR:", err.message);
+    if (err.response) console.error("Response data:", err.response.data);
   }
 });
 
@@ -222,6 +234,7 @@ setInterval(async () => {
   }
 }, 5 * 60 * 1000);
 
-app.listen(PORT, () => {
-  console.log(`🚀 WA Flight Bot running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 WA Flight Bot running on http://${HOST}:${PORT}`);
+  console.log(`🔗 Webhook URL should be: <your-railway-url>/webhook`);
 });

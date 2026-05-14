@@ -1,7 +1,11 @@
 {
   "name": "whatsapp-flight-bot",
   "version": "2.0.0",
+  "description": "WhatsApp Flight Booking Bot with AI and Admin Dashboard",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js"
