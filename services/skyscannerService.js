@@ -1,5 +1,30 @@
 const axios = require('axios');
 
+async function resolveAirport(iataCode) {
+  const options = {
+    method: 'GET',
+    url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/flights/searchAirport',
+    params: { query: iataCode },
+    headers: {
+      'x-rapidapi-key': process.env.RAPIDAPI_KEY,
+      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com'
+    }
+  };
+
+  try {
+    const res = await axios.request(options);
+    if (res.data && res.data.data && res.data.data.length > 0) {
+      return {
+        skyId: res.data.data[0].skyId,
+        entityId: res.data.data[0].entityId
+      };
+    }
+  } catch (error) {
+    console.error(`[Skyscanner Service]: Failed to resolve airport code ${iataCode}`);
+  }
+  return null;
+}
+
 /**
  * Specifically searches for MakeMyTrip prices via the Skyscanner Flights & Travel API.
  */
@@ -9,13 +34,24 @@ async function searchMMT(data) {
     return [];
   }
 
+  console.log(`[Skyscanner Service]: Resolving airport codes for ${data.from} -> ${data.to}...`);
+  const origin = await resolveAirport(data.from);
+  const destination = await resolveAirport(data.to);
+
+  if (!origin || !destination) {
+    console.log("[Skyscanner Service]: Could not resolve SkyIds for the route. Falling back.");
+    return [];
+  }
+
   const options = {
     method: 'GET',
     url: 'https://skyscanner-flights-travel-api.p.rapidapi.com/flights/searchFlights',
     params: {
-      fromId: data.from,
-      toId: data.to,
-      departDate: data.date,
+      originSkyId: origin.skyId,
+      destinationSkyId: destination.skyId,
+      originEntityId: origin.entityId,
+      destinationEntityId: destination.entityId,
+      date: data.date,
       adults: data.passengers || '1',
       currency: 'INR',
       cabinClass: 'economy'
@@ -27,12 +63,12 @@ async function searchMMT(data) {
   };
 
   try {
-    console.log(`[Skyscanner Service]: Requesting MMT data for ${data.from} -> ${data.to}`);
+    console.log(`[Skyscanner Service]: Requesting MMT data for ${origin.skyId} -> ${destination.skyId} on ${data.date}`);
     const response = await axios.request(options);
     
-    // Some Skyscanner APIs return 'itineraries' as a direct array, others in buckets
-    const allItineraries = response.data.itineraries || [];
-    const buckets = response.data.itineraries?.buckets || [];
+    // The API structure usually has itineraries
+    const allItineraries = response.data?.data?.itineraries || response.data?.itineraries || [];
+    const buckets = response.data?.data?.itineraries?.buckets || response.data?.itineraries?.buckets || [];
     
     // Combine all potential items
     let allItems = [];
@@ -45,16 +81,13 @@ async function searchMMT(data) {
       // Find agents for this flight
       item.priceOptions?.forEach(opt => {
         opt.agents?.forEach(agent => {
-          // DEBUG LOG: See what agents are available
-          // console.log(`[Skyscanner Debug]: Found agent: ${agent.name}`);
-          
           if (agent.name.toLowerCase().includes('makemytrip')) {
             const leg = item.legs?.[0];
             if (leg) {
               mmtResults.push({
                 flights: leg.segments.map(s => ({
-                  airline: s.marketingCarrier.name,
-                  flight_number: `${s.marketingCarrier.displayCode || ''} ${s.flightNumber}`,
+                  airline: s.marketingCarrier?.name || s.operatingCarrier?.name,
+                  flight_number: `${s.marketingCarrier?.displayCode || ''} ${s.flightNumber}`,
                   departure_airport: { time: (s.departure || "").split('T')[1]?.substring(0, 5) || "N/A" },
                   arrival_airport: { time: (s.arrival || "").split('T')[1]?.substring(0, 5) || "N/A" }
                 })),
