@@ -7,43 +7,120 @@ async function searchFlights(data) {
     // ── 1. Mystifly Primary (Professional GDS Data) ─────────────────────────
     if (process.env.MYSTIFLY_USERNAME) {
       console.log(`[Flight Service]: Trying Mystifly for ${data.from} → ${data.to}`);
-      const mystiflyResults = await searchMystifly(data);
-      if (mystiflyResults.length > 0) {
-        const transformed = mystiflyResults.map(f => ({
-          flights: [{
-            airline: f.airline,
-            flight_number: f.flight_number,
-            departure_airport: { time: f.depTime },
-            arrival_airport: { time: f.arrTime }
-          }],
-          price: f.price,
-          total_duration: f.duration,
-          luggage: f.luggage,
-          visa: '',
-          source: 'Mystifly'
-        }));
-        return finalizeAndPrioritize(transformed, data);
+      try {
+        const mystiflyResults = await searchMystifly(data);
+        if (mystiflyResults.length > 0) {
+          const transformed = mystiflyResults.map(f => ({
+            flights: [{
+              airline: f.airline,
+              flight_number: f.flight_number,
+              departure_airport: { time: f.depTime },
+              arrival_airport: { time: f.arrTime }
+            }],
+            price: f.price,
+            total_duration: f.duration,
+            luggage: f.luggage,
+            visa: '',
+            source: 'Mystifly'
+          }));
+          return finalizeAndPrioritize(transformed, data);
+        }
+      } catch (err) {
+        console.error("[Flight Service]: Mystifly failed:", err.message);
       }
     }
 
     // ── 1.5 MakeMyTrip via Skyscanner (NEW PRIMARY) ─────────────────────────
     if (process.env.RAPIDAPI_KEY) {
       console.log(`[Flight Service]: 🔍 Attempting PRIORITY search: MakeMyTrip...`);
-      const mmtResults = await searchMMT(data);
-      if (mmtResults && mmtResults.length > 0) {
-        console.log(`[Flight Service]: 🌟 SUCCESS! Retrieved ${mmtResults.length} exact results from MakeMyTrip.`);
-        return finalizeAndPrioritize(mmtResults, data);
-      } else {
-        console.log(`[Flight Service]: ⚠️ MMT failed or no results found.`);
-        throw new Error("MMT returned no results");
+      try {
+        const mmtResults = await searchMMT(data);
+        if (mmtResults && mmtResults.length > 0) {
+          console.log(`[Flight Service]: 🌟 SUCCESS! Retrieved ${mmtResults.length} exact results from MakeMyTrip.`);
+          return finalizeAndPrioritize(mmtResults, data);
+        } else {
+          console.log(`[Flight Service]: ⚠️ MMT returned no results. Falling back to SerpApi.`);
+        }
+      } catch (err) {
+        console.error(`[Flight Service]: MakeMyTrip failed:`, err.message);
       }
     }
 
-    return [];
+    // ── 2. SerpApi Fallback (Google Flights) ────────────────────────────────
+    console.log(`[Flight Service]: Searching SerpApi for ${data.from} → ${data.to} on ${data.date}`);
+
+    const params = {
+      engine: 'google_flights',
+      departure_id: data.from,
+      arrival_id: data.to,
+      outbound_date: data.date,
+      type: 2,                          // One-way
+      adults: parseInt(data.passengers) || 1,
+      currency: 'INR',
+      hl: 'en',
+      gl: 'in',
+      api_key: process.env.SERPAPI_KEY
+    };
+
+    if (data.preference === 'Premium') params.travel_class = 3;
+
+    const res = await axios.get('https://serpapi.com/search.json', { params });
+    const raw = [...(res.data.best_flights || []), ...(res.data.other_flights || [])];
+
+    console.log(`[Flight Service]: SerpApi returned ${raw.length} raw results`);
+
+    // ── 3. Deduplicate & enrich ──────────────────────────────────────────────
+    const results = [];
+    const seen = new Set();
+
+    for (const f of raw) {
+      if (!f.flights?.[0] || typeof f.price !== 'number') continue;
+
+      const first = f.flights[0];
+      const key = `${first.airline}_${first.departure_airport?.time}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Luggage from SerpApi extensions
+      let luggage = 'Not specified';
+      if (f.extensions?.length) {
+        const ext = f.extensions.join(' ').toLowerCase();
+        if (ext.includes('check-in baggage') || ext.includes('baggage included')) luggage = 'Included';
+        else if (ext.includes('no check-in') || ext.includes('no baggage')) luggage = 'Not included';
+      }
+
+      // Transit visa warning
+      let visa = '';
+      if (f.layovers?.length) {
+        const layoverStr = f.layovers.map(l => l.name).join(', ');
+        const layoverStrLower = layoverStr.toLowerCase();
+        
+        let visaWarning = "";
+        if (layoverStrLower.includes("united states") || layoverStrLower.includes("new york") || layoverStrLower.includes("jfk") || layoverStrLower.includes("newark") || layoverStrLower.includes("dulles")) {
+            visaWarning = " (🛂 USA Transit Visa Req.)";
+        } else if (layoverStrLower.includes("london") || layoverStrLower.includes("heathrow") || layoverStrLower.includes("gatwick")) {
+            visaWarning = " (🛂 UK Transit Visa Req.)";
+        } else if (layoverStrLower.includes("frankfurt") || layoverStrLower.includes("munich") || layoverStrLower.includes("paris") || layoverStrLower.includes("zurich") || layoverStrLower.includes("amsterdam")) {
+            visaWarning = " (🛂 Schengen Transit Req.)";
+        }
+
+        visa = `${visaWarning} (Transit: ${layoverStr})`;
+      }
+
+      // Air India 46kg override
+      if (data.preferred_airline?.toLowerCase() === 'air india'
+          && first.airline.toLowerCase().includes('air india')) {
+        luggage = '46kg (2×23kg)';
+      }
+
+      results.push({ ...f, luggage, visa });
+    }
+
+    return finalizeAndPrioritize(results, data);
 
   } catch (err) {
     console.error('[Flight Service Error]:', err.message);
-    throw err; // Re-throw to ensure the error bubble up and we don't fall back silently
+    return []; // Return empty array instead of crashing
   }
 }
 
