@@ -34,12 +34,81 @@ async function searchFlights(data) {
         console.log(`[Flight Service]: 🌟 SUCCESS! Retrieved ${mmtResults.length} exact results from MakeMyTrip.`);
         return finalizeAndPrioritize(mmtResults, data);
       } else {
-        console.log(`[Flight Service]: ⚠️ MMT failed or no results found.`);
-        throw new Error("MMT returned no results");
+        console.log(`[Flight Service]: ⚠️ MMT failed or no results found. Falling back to SerpApi.`);
       }
     }
 
-    return [];
+    // ── 2. SerpApi Fallback (Google Flights) ────────────────────────────────
+    console.log(`[Flight Service]: Searching SerpApi for ${data.from} → ${data.to} on ${data.date}`);
+
+    const params = {
+      engine: 'google_flights',
+      departure_id: data.from,
+      arrival_id: data.to,
+      outbound_date: data.date,
+      type: 2,                          // One-way
+      adults: parseInt(data.passengers) || 1,
+      currency: 'INR',
+      hl: 'en',
+      gl: 'in',
+      api_key: process.env.SERPAPI_KEY
+    };
+
+    if (data.preference === 'Premium') params.travel_class = 3;
+
+    const res = await axios.get('https://serpapi.com/search.json', { params });
+    const raw = [...(res.data.best_flights || []), ...(res.data.other_flights || [])];
+
+    console.log(`[Flight Service]: SerpApi returned ${raw.length} raw results`);
+
+    // ── 3. Deduplicate & enrich ──────────────────────────────────────────────
+    const results = [];
+    const seen = new Set();
+
+    for (const f of raw) {
+      if (!f.flights?.[0] || typeof f.price !== 'number') continue;
+
+      const first = f.flights[0];
+      const key = `${first.airline}_${first.departure_airport?.time}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      // Luggage from SerpApi extensions
+      let luggage = 'Not specified';
+      if (f.extensions?.length) {
+        const ext = f.extensions.join(' ').toLowerCase();
+        if (ext.includes('check-in baggage') || ext.includes('baggage included')) luggage = 'Included';
+        else if (ext.includes('no check-in') || ext.includes('no baggage')) luggage = 'Not included';
+      }
+
+      // Transit visa warning
+      let visa = '';
+      if (f.layovers?.length) {
+        const layoverStr = f.layovers.map(l => l.name).join(', ');
+        const layoverStrLower = layoverStr.toLowerCase();
+        
+        let visaWarning = "";
+        if (layoverStrLower.includes("united states") || layoverStrLower.includes("new york") || layoverStrLower.includes("jfk") || layoverStrLower.includes("newark") || layoverStrLower.includes("dulles")) {
+            visaWarning = " (🛂 USA Transit Visa Req.)";
+        } else if (layoverStrLower.includes("london") || layoverStrLower.includes("heathrow") || layoverStrLower.includes("gatwick")) {
+            visaWarning = " (🛂 UK Transit Visa Req.)";
+        } else if (layoverStrLower.includes("frankfurt") || layoverStrLower.includes("munich") || layoverStrLower.includes("paris") || layoverStrLower.includes("zurich") || layoverStrLower.includes("amsterdam")) {
+            visaWarning = " (🛂 Schengen Transit Req.)";
+        }
+
+        visa = `${visaWarning} (Transit: ${layoverStr})`;
+      }
+
+      // Air India 46kg override
+      if (data.preferred_airline?.toLowerCase() === 'air india'
+          && first.airline.toLowerCase().includes('air india')) {
+        luggage = '46kg (2×23kg)';
+      }
+
+      results.push({ ...f, luggage, visa });
+    }
+
+    return finalizeAndPrioritize(results, data);
 
   } catch (err) {
     console.error('[Flight Service Error]:', err.message);

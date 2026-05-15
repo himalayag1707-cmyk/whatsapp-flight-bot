@@ -18,6 +18,7 @@ async function resolveAirport(iataCode) {
     console.log(`[Skyscanner Service]: Requesting Airport Resolve: ${options.url} with params:`, options.params);
     const res = await axios.request(options);
     console.log(`[Skyscanner Service]: Airport Resolve Status: ${res.status}`);
+    console.log(`[Skyscanner Service]: Airport Resolve Body:`, JSON.stringify(res.data, null, 2));
     
     if (res.data && res.data.data && res.data.data.length > 0) {
       return {
