@@ -16,16 +16,32 @@ async function resolveAirport(iataCode) {
 
   try {
     console.log(`[Skyscanner Service]: Requesting Airport Resolve: ${options.url} with params:`, options.params);
-    const res = await axios.request(options);
-    console.log(`[Skyscanner Service]: Airport Resolve Status: ${res.status}`);
-    console.log(`[Skyscanner Service]: Airport Resolve Body:`, JSON.stringify(res.data, null, 2));
+    const response = await axios.request(options);
+    console.log(`[Skyscanner Service]: Airport Resolve Status: ${response.status}`);
     
-    if (res.data && res.data.data && res.data.data.length > 0) {
-      return {
-        skyId: res.data.data[0].skyId,
-        entityId: res.data.data[0].entityId
-      };
+    // EXACT DEBUG LOG AS REQUESTED
+    console.log(
+      "Airport Resolve FULL Response:",
+      JSON.stringify(response.data, null, 2)
+    );
+
+    const airports = response.data?.data || [];
+
+    if (!airports.length) {
+      console.log(`[Skyscanner Service]: No airports found for ${iataCode}`);
+      return null;
     }
+
+    const airport = airports[0];
+    console.log("Extracted airport object:", airport);
+    console.log("Extracted skyId:", airport.skyId);
+    console.log("Extracted entityId:", airport.entityId);
+
+    return {
+      skyId: airport.skyId,
+      entityId: airport.entityId,
+    };
+
   } catch (error) {
     console.error(`[Skyscanner Service]: Failed to resolve airport code ${iataCode}`);
     if (error.response) {

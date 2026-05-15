@@ -16,7 +16,7 @@
 - **Data Sources:** 
   - MakeMyTrip (Primary): Integrated via Skyscanner Flights & Travel API (RapidAPI).
   - Mystifly (Professional GDS - Secondary).
-  - SerpApi / Google Flights (Fallback): Restored to ensure service availability if MMT fails.
+  - *SerpApi fallback has been disabled to isolate and fix MMT resolution issues.*
 - **Persistence:** Local JSON files (`data/`) on Railway.
 - **Admin Dashboard:** Custom-built dashboard to monitor chats and human-override.
 
@@ -30,8 +30,9 @@
 - **Skyscanner Fix (May 15):** 
   - Refined MMT integration using two-step resolution (`searchAirport` -> `searchFlights`).
   - Added browser-like headers to bypass anti-bot measures.
-  - Implemented detailed debug logging for request/response cycles (including Airport Resolve body).
-  - Restored SerpApi fallback for reliability.
+  - Implemented detailed debug logging (`Airport Resolve FULL Response`) to inspect JSON structure.
+  - Hardened airport resolution parser to handle nested `response.data.data` structure.
+  - Disabled SerpApi fallback to ensure visibility of MMT failures.
 - **CRM Integration:** Implemented `userStore.js` for multi-step flow management.
 
 ## 5. Future Roadmap & Pending Features
