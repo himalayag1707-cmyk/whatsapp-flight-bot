@@ -7,12 +7,18 @@ async function resolveAirport(iataCode) {
     params: { query: iataCode },
     headers: {
       'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com'
+      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+      'Referer': 'https://www.makemytrip.com/'
     }
   };
 
   try {
+    console.log(`[Skyscanner Service]: Requesting Airport Resolve: ${options.url} with params:`, options.params);
     const res = await axios.request(options);
+    console.log(`[Skyscanner Service]: Airport Resolve Status: ${res.status}`);
+    
     if (res.data && res.data.data && res.data.data.length > 0) {
       return {
         skyId: res.data.data[0].skyId,
@@ -21,6 +27,10 @@ async function resolveAirport(iataCode) {
     }
   } catch (error) {
     console.error(`[Skyscanner Service]: Failed to resolve airport code ${iataCode}`);
+    if (error.response) {
+      console.error(`[Skyscanner Service]: Error Status: ${error.response.status}`);
+      console.error(`[Skyscanner Service]: Error Body:`, JSON.stringify(error.response.data, null, 2));
+    }
   }
   return null;
 }
@@ -58,13 +68,18 @@ async function searchMMT(data) {
     },
     headers: {
       'x-rapidapi-key': process.env.RAPIDAPI_KEY,
-      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com'
+      'x-rapidapi-host': 'skyscanner-flights-travel-api.p.rapidapi.com',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+      'Referer': 'https://www.makemytrip.com/'
     }
   };
 
   try {
-    console.log(`[Skyscanner Service]: Requesting MMT data for ${origin.skyId} -> ${destination.skyId} on ${data.date}`);
+    console.log(`[Skyscanner Service]: Requesting MMT Data: ${options.url} with params:`, options.params);
     const response = await axios.request(options);
+    console.log(`[Skyscanner Service]: MMT Response Status: ${response.status}`);
+    console.log(`[Skyscanner Service]: MMT Response Body:`, JSON.stringify(response.data, null, 2));
     
     // The API structure usually has itineraries
     const allItineraries = response.data?.data?.itineraries || response.data?.itineraries || [];
