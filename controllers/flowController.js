@@ -43,8 +43,14 @@ async function sendETicketToUser(mobile, user) {
 /**
  * Core entry point for incoming WhatsApp messages.
  */
-async function handleIncomingMessage(mobile, text, base64Image, mediaId) {
+async function handleIncomingMessage(mobile, text, base64Image, mediaId, baseUrl = null) {
   const cleanText = text.trim();
+
+  if (baseUrl) {
+    const u = getUser(mobile);
+    u.data.baseUrl = baseUrl;
+    updateUser(mobile, u);
+  }
 
   // 1. Admin Command Handling (Priority)
   const cleanMobile = mobile.replace(/\D/g, '').slice(-10);
@@ -423,9 +429,22 @@ async function sendPaymentSummary(mobile, user, sendBotMessage) {
 }
 
 async function executeFlightSearchWorkflow(mobile, user) {
-  const { sendMessage } = require('../services/whatsapp');
+  const { sendMessage, sendImageMessage } = require('../services/whatsapp');
   try {
     const flights = await searchFlights(user.data);
+
+    // Send MMT search screenshot if available
+    const screenshotFlight = flights?.find(f => f.screenshotUrl);
+    if (screenshotFlight && user.data.baseUrl) {
+      const absoluteUrl = `${user.data.baseUrl}${screenshotFlight.screenshotUrl}`;
+      console.log(`[Flow Controller]: Sending live search screenshot: ${absoluteUrl}`);
+      try {
+        await sendImageMessage(mobile, absoluteUrl, "📸 Live MakeMyTrip search screenshot!");
+      } catch (err) {
+        console.error("Failed to send screenshot:", err.message);
+      }
+    }
+
     if (!flights || flights.length === 0) {
       user.state = 'ASK_ROUTE';
       updateUser(mobile, user);

@@ -1,5 +1,5 @@
 # PROJECT CONTEXT BACKUP - Hopspot Flight Bot (Manoj AI)
-*Last Updated: 2026-05-15*
+*Last Updated: 2026-05-18*
 
 > [!IMPORTANT]
 > This file is a comprehensive memory dump for any AI assistant to understand this project's history, architecture, and logic.
@@ -14,9 +14,9 @@
 - **WhatsApp Integration:** Meta Cloud API (Webhooks).
 - **Intelligence:** OpenAI GPT-4o for natural language and screenshot processing.
 - **Data Sources:** 
-  - MakeMyTrip (Primary): Integrated via Skyscanner Flights & Travel API (RapidAPI).
-  - Mystifly (Professional GDS - Secondary).
-  - SerpApi / Google Flights (Fallback): Restored and hardened to ensure service availability if MMT/Skyscanner fails.
+  - **MakeMyTrip (Primary):** Integrated via Bright Data Scraping Browser (`puppeteer-core`). Puppeteer connects to Bright Data's secure cloud browser, navigates directly to MakeMyTrip, extracts all details (pricing, departure/arrival times, stops, detailed baggage tables, layovers, and transit visas), and takes a visual viewport screenshot of the search page.
+  - **Mystifly (Professional GDS - Secondary).**
+  - **SerpApi / Google Flights (Fallback):** Hardened to serve Google Flights results if both GDS and MakeMyTrip scraper fail.
 - **Persistence:** Local JSON files (`data/`) on Railway.
 - **Admin Dashboard:** Custom-built dashboard to monitor chats and human-override.
 
@@ -27,11 +27,12 @@
 - **Admin Commands:** `PAUSE/RESUME`, `CONFIRM`, `WHISPER`, `ASK`.
 
 ## 4. Key Improvements & Fixes (History)
-- **MMT/Skyscanner Hardening (May 15):** 
-  - Implemented detailed JSON structural logging for `searchAirport` and `searchFlights`.
-  - Added browser-like headers to API requests to bypass bot detection.
-  - **Fallback Recovery:** Restored SerpApi as a non-crashing fallback. If MMT fails, the bot now logs the error but continues to SerpApi results to avoid "technical glitch" messages to the user.
-- **CRM Integration:** Implemented `userStore.js` for multi-step flow management.
+- **MMT/Skyscanner Hardening (May 15):** Added browser-like headers to API requests and restored SerpApi as a fallback.
+- **MMT Scraping Browser Integration (May 18):** 
+  - Completely replaced the Skyscanner API with a highly resilient Scraping Browser approach.
+  - Implemented dynamic screenshotting of the MakeMyTrip results page.
+  - Exposed `/screenshots` as an Express static endpoint so WhatsApp can serve screenshot image URLs to users.
+  - Added support for detailed baggage parsing by expanding the first flight details tab.
 
 ## 5. Future Roadmap & Pending Features
 - **Database Migration:** Move from JSON files to MongoDB/PostgreSQL.

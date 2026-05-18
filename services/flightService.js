@@ -1,6 +1,6 @@
 const axios = require('axios');
 const { searchMystifly } = require('./mystiflyService');
-const { searchMMT } = require('./skyscannerService');
+const { scrapeMMT } = require('./mmtScrapingBrowserService');
 
 async function searchFlights(data) {
   try {
@@ -30,19 +30,19 @@ async function searchFlights(data) {
       }
     }
 
-    // ── 1.5 MakeMyTrip via Skyscanner (NEW PRIMARY) ─────────────────────────
-    if (process.env.RAPIDAPI_KEY) {
-      console.log(`[Flight Service]: 🔍 Attempting PRIORITY search: MakeMyTrip...`);
+    // ── 1.5 MakeMyTrip via Bright Data Scraping Browser (NEW PRIMARY) ─────────
+    if (process.env.BRIGHTDATA_WS_ENDPOINT) {
+      console.log(`[Flight Service]: 🔍 Attempting PRIORITY search: MakeMyTrip via Scraping Browser...`);
       try {
-        const mmtResults = await searchMMT(data);
+        const mmtResults = await scrapeMMT(data);
         if (mmtResults && mmtResults.length > 0) {
           console.log(`[Flight Service]: 🌟 SUCCESS! Retrieved ${mmtResults.length} exact results from MakeMyTrip.`);
           return finalizeAndPrioritize(mmtResults, data);
         } else {
-          console.log(`[Flight Service]: ⚠️ MMT returned no results. Falling back to SerpApi.`);
+          console.log(`[Flight Service]: ⚠️ MMT Scraping Browser returned no results. Falling back to SerpApi.`);
         }
       } catch (err) {
-        console.error(`[Flight Service]: MakeMyTrip failed:`, err.message);
+        console.error(`[Flight Service]: MakeMyTrip scraping failed:`, err.message);
       }
     }
 

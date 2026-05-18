@@ -18,6 +18,9 @@ if (!fs.existsSync(dataDir)) {
   console.log('📁 Created data directory');
 }
 
+// Expose public screenshots directory
+app.use('/screenshots', express.static(path.join(__dirname, 'public/screenshots')));
+
 // WhatsApp Verification (Webhook)
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -77,7 +80,10 @@ app.post('/webhook', async (req, res) => {
 
     if (text || base64Image || mediaId) {
       console.log(`📩 Incoming message from ${from}: ${text?.substring(0, 50)}...`);
-      await handleIncomingMessage(from, text, base64Image, mediaId);
+      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+      const host = req.get('host');
+      const baseUrl = `${protocol}://${host}`;
+      await handleIncomingMessage(from, text, base64Image, mediaId, baseUrl);
     }
 
   } catch (err) {
@@ -133,8 +139,11 @@ app.post('/api/whisper', async (req, res) => {
   const adminCommand = `WHISPER ${mobile} ${text}`;
   
   try {
+    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
     // We pass ADMIN_NUMBER and null media to signify this is a command from the admin
-    await handleIncomingMessage(process.env.ADMIN_NUMBER || '918882783582', adminCommand, null);
+    await handleIncomingMessage(process.env.ADMIN_NUMBER || '918882783582', adminCommand, null, null, baseUrl);
     res.json({ success: true, message: "Whisper processed successfully" });
   } catch (error) {
     console.error("Dashboard Whisper Error:", error);
@@ -169,7 +178,7 @@ app.post('/api/send-ticket', async (req, res) => {
   const selectedFlight = user.flights?.find(f => f.flights[0].flight_number === user.data.flightNumberSelected);
   const depTime = selectedFlight?.flights[0]?.departure_airport?.time || 'N/A';
   const arrTime = selectedFlight?.flights[selectedFlight?.flights?.length - 1]?.arrival_airport?.time || 'N/A';
-
+ 
   const seatInfo = seatNumber ? `\nSeat(s): ${seatNumber}` : "";
 
   const ticketMsg = `🎫 *E-Ticket Confirmation*\n\n` +
