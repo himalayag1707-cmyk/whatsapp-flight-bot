@@ -421,7 +421,7 @@ async function handleIncomingMessage(mobile, text, base64Image, mediaId, baseUrl
     return;
   }
   if (!user.flights || user.flights.length === 0) {
-    await sendBotMessage("🔍 Finding best flight options...");
+    await sendBotMessage("Give me a minute while I search for your flights... ⏳");
     await executeFlightSearchWorkflow(mobile, user);
     return;
   }
@@ -445,17 +445,7 @@ async function executeFlightSearchWorkflow(mobile, user) {
   try {
     const flights = await searchFlights(user.data);
 
-    // Send MMT search screenshot if available AND user originally sent an exact flight screenshot
-    const screenshotFlight = flights?.find(f => f.screenshotUrl);
-    if (screenshotFlight && user.data.baseUrl && user.data.targetFlightDetails) {
-      const absoluteUrl = `${user.data.baseUrl}${screenshotFlight.screenshotUrl}`;
-      console.log(`[Flow Controller]: Sending live search screenshot for exact matched flight: ${absoluteUrl}`);
-      try {
-        await sendImageMessage(mobile, absoluteUrl, "📸 Live MakeMyTrip price matched for your flight!");
-      } catch (err) {
-        console.error("Failed to send screenshot:", err.message);
-      }
-    }
+    // Screenshots are now captured sequentially in the scraper and sent in sendFlightListResults
 
     if (!flights || flights.length === 0) {
       user.state = 'ASK_ROUTE';
@@ -510,26 +500,50 @@ async function executeFlightSearchWorkflow(mobile, user) {
 
 async function sendFlightListResults(mobile, user, sendBotMessage) {
   const picks = user.flights;
-  let detailsMsg = `✈️ *Top Flight Picks:*\n*${user.data.from}* ➔ *${user.data.to}*  |  🗓️ ${user.data.date}\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-  picks.forEach((f, index) => {
-    const leg = f.flights[0];
-    const duration = `${Math.floor((f.total_duration || 0) / 60)}h ${(f.total_duration || 0) % 60}m`;
-    const totalPrice = f.price * (parseInt(user.data.passengers) || 1);
-    const luggageStr = f.luggage !== "Not specified" ? `🧳 ${f.luggage}` : "";
-    const visaStr = f.visa ? `⚠️ ${f.visa}` : "";
-    
-    detailsMsg += `*${index + 1}.* ${leg?.airline}  |  *₹${totalPrice}*\n🕒 ${leg?.departure_airport?.time || 'N/A'} - ${f.flights[f.flights.length - 1]?.arrival_airport?.time || 'N/A'} (${duration})\n${luggageStr} ${visaStr}\n\n`;
-  });
-  detailsMsg += `━━━━━━━━━━━━━━━━━━━━\nSelect an option below 👇`;
-  await sendBotMessage(detailsMsg);
+  const { sendImageWithButtons, sendListMessage } = require('../services/whatsapp');
 
-  const { sendListMessage } = require('../services/whatsapp');
-  const rows = picks.map((f, i) => ({
-    id: `flight_${i + 1}`,
-    title: `Option ${i + 1}`,
-    description: `${f.flights[0]?.airline} · ₹${f.price * (parseInt(user.data.passengers) || 1)}`.substring(0, 72)
-  }));
-  await sendListMessage(mobile, "Hopspot Flights", "Tap to pick your flight.", "Select Flight", [{ title: "Available Flights", rows }]);
+  await sendBotMessage(`✈️ *Top Flight Picks:*\n*${user.data.from}* ➔ *${user.data.to}*  |  🗓️ ${user.data.date}\n━━━━━━━━━━━━━━━━━━━━\nLoading visual confirmations...`);
+
+  // Send screenshots sequentially
+  let imagesSent = false;
+  for (let index = 0; index < picks.length; index++) {
+    const f = picks[index];
+    const totalPrice = f.price * (parseInt(user.data.passengers) || 1);
+    
+    if (f.screenshotUrl && user.data.baseUrl) {
+      imagesSent = true;
+      const absoluteUrl = `${user.data.baseUrl}${f.screenshotUrl}`;
+      
+      const luggageStr = f.luggage && f.luggage !== "Not specified" ? f.luggage : "Standard";
+      const layoversStr = f.stops || "Non Stop Flight";
+      
+      const caption = `Fare: ${totalPrice}\nLuggage : ${luggageStr}\nLayovers: ${layoversStr}`;
+      const buttons = [{ id: `flight_${index + 1}`, title: `Select Flight` }];
+      
+      console.log(`[Flow Controller]: Sending interactive image for Option ${index + 1}: ${absoluteUrl}`);
+      try {
+        await sendImageWithButtons(mobile, absoluteUrl, caption, buttons);
+        // Small delay to ensure sequential delivery order in WhatsApp
+        await new Promise(res => setTimeout(res, 1000));
+      } catch (err) {
+        console.error(`Failed to send screenshot for Option ${index + 1}:`, err.message);
+      }
+    }
+  }
+
+  if (!imagesSent) {
+    let detailsMsg = `━━━━━━━━━━━━━━━━━━━━\nReview the flight options below 👇`;
+    await sendBotMessage(detailsMsg);
+
+    const rows = picks.map((f, i) => ({
+      id: `flight_${i + 1}`,
+      title: `Option ${i + 1}`,
+      description: `${f.flights[0]?.airline} · ₹${f.price * (parseInt(user.data.passengers) || 1)}`.substring(0, 72)
+    }));
+    await sendListMessage(mobile, "Hopspot Flights", "Tap to pick your flight.", "Select Flight", [{ title: "Available Flights", rows }]);
+  } else {
+    await sendBotMessage(`━━━━━━━━━━━━━━━━━━━━\nPlease tap 'Select Flight' under the exact option you prefer above 👆`);
+  }
 }
 
 module.exports = { handleIncomingMessage };

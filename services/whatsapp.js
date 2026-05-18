@@ -113,10 +113,46 @@ async function sendImageById(to, mediaId, caption) {
   }
 }
 
+async function sendImageWithButtons(to, imageUrl, bodyText, buttons) {
+  try {
+    const actionButtons = buttons.map(b => ({
+      type: "reply",
+      reply: { id: b.id, title: b.title }
+    }));
+
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${process.env.PHONE_NUMBER_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          header: {
+            type: "image",
+            image: { link: imageUrl }
+          },
+          body: { text: bodyText },
+          action: { buttons: actionButtons }
+        }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  } catch (err) {
+    console.log("SEND IMAGE BUTTONS ERROR:", err.response?.data || err.message);
+  }
+}
+
 module.exports = {
   sendMessage,
   sendListMessage,
   sendImageMessage,
   sendImageById,
-  downloadMedia
+  downloadMedia,
+  sendImageWithButtons
 };
