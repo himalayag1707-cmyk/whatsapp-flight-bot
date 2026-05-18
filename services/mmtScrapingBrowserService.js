@@ -145,22 +145,37 @@ async function scrapeMMT(data) {
             const card = cards[flightIdx];
             
             // 1. Click 'View Prices'
-            let viewPricesBtn = await card.$('.viewFareBtn, [class*="viewFare"], button, a.viewFareBtn').catch(() => null); 
-            if (!viewPricesBtn) {
-                viewPricesBtn = await card.$('.priceSection, [class*="price"]').catch(() => null);
-            }
-            if (!viewPricesBtn) {
+            let viewPricesBtn = await page.evaluateHandle((cardEl) => {
+                const btns = Array.from(cardEl.querySelectorAll('button, span, div, a'));
+                for (const b of btns) {
+                    const text = (b.innerText || '').toUpperCase();
+                    if (text.includes('VIEW PRICES') || text.includes('VIEW FARES')) {
+                        // Ensure we return the clickable parent if it's a span
+                        return (b.tagName === 'SPAN' && b.closest('button')) ? b.closest('button') : b;
+                    }
+                }
+                return cardEl.querySelector('.viewFareBtn, [class*="viewFare"], button, a.viewFareBtn, .priceSection, [class*="price"]');
+            }, card).catch(() => null);
+
+            // evaluateHandle returns a JSHandle even if it points to null, so we must check if it's an actual element
+            const isViewPricesFound = viewPricesBtn && await viewPricesBtn.evaluate(el => el !== null).catch(() => false);
+
+            if (!isViewPricesFound) {
                 console.log("[MMT Scraper]: View Prices button not found. Skipping visual grab.");
                 finalFlights.push(flightData);
                 continue;
             }
             
             const pagesBeforeView = await browser.pages();
-            await page.evaluate(el => el.scrollIntoView({block: "center"}), viewPricesBtn).catch(() => {});
+            await viewPricesBtn.evaluate(el => el.scrollIntoView({block: "center", behavior: "instant"})).catch(() => {});
             await delay(1000);
             
-            // Click and catch if it destroys context or fails
-            await viewPricesBtn.click().catch(() => {});
+            // Try Puppeteer click first, fallback to JS click
+            try {
+                await viewPricesBtn.click();
+            } catch (e) {
+                await viewPricesBtn.evaluate(el => el.click()).catch(() => {});
+            }
             console.log("  -> Clicked 'View Prices'");
             
             // Wait for fare modal/section OR new tab
@@ -176,27 +191,43 @@ async function scrapeMMT(data) {
                 isNewTab = true;
             } else {
                 // 2. Find 'Book Now' button in the expanded fare options
-                // We scope the search strictly to the current card to avoid clicking another flight's button
-                const bookNowBtns = await card.$$('button, a, input').catch(() => []);
-                let targetBookBtn = null;
-                
-                for (const btn of bookNowBtns) {
-                    const text = await page.evaluate(el => el.innerText || el.value || '', btn).catch(() => '');
-                    const className = await page.evaluate(el => el.className || '', btn).catch(() => '');
-                    const cleanText = text.toUpperCase().trim();
-                    const cleanClass = className.toLowerCase();
-                    
-                    if (cleanText.includes('BOOK') || cleanText.includes('CONTINUE') || cleanText.includes('SELECT') || cleanClass.includes('booknow') || cleanClass.includes('farebtn')) {
-                        targetBookBtn = btn;
-                        if (cleanText.includes('BOOK')) break; // Prefer explicit 'BOOK' text
-                    }
-                }
+                // MMT fare options usually appear as a sibling div or appended to the card's parent container
+                const targetBookBtn = await page.evaluateHandle(() => {
+                    const btns = Array.from(document.querySelectorAll('button, a, input'));
+                    let fallback = null;
+                    for (const btn of btns) {
+                        const text = (btn.innerText || btn.value || '').toUpperCase().trim();
+                        const className = (btn.className || '').toLowerCase();
+                        
+                        // Ignore buttons that are not visible
+                        const rect = btn.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) continue;
+                        const style = window.getComputedStyle(btn);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
 
-                if (targetBookBtn) {
+                        if (text.includes('BOOK NOW') || text === 'BOOK' || text === 'SELECT') {
+                            return btn; // Return the first explicit, visible 'BOOK NOW' button
+                        }
+                        
+                        if (className.includes('booknow') || className.includes('farebtn')) {
+                            fallback = btn;
+                        }
+                    }
+                    return fallback;
+                }).catch(() => null);
+                
+                const isBookNowFound = targetBookBtn && await targetBookBtn.evaluate(el => el !== null).catch(() => false);
+
+                if (isBookNowFound) {
                     const pagesBeforeBook = await browser.pages();
-                    await page.evaluate(el => el.scrollIntoView({block: "center"}), targetBookBtn).catch(() => {});
+                    await targetBookBtn.evaluate(el => el.scrollIntoView({block: "center", behavior: "instant"})).catch(() => {});
                     await delay(500);
-                    await targetBookBtn.click().catch(() => {});
+                    
+                    try {
+                        await targetBookBtn.click();
+                    } catch (e) {
+                        await targetBookBtn.evaluate(el => el.click()).catch(() => {});
+                    }
                     console.log("  -> Clicked 'Book Now'");
                     
                     await delay(5000); // Give MMT time to open new tab
