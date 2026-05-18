@@ -268,6 +268,18 @@ async function handleIncomingMessage(mobile, text, base64Image, mediaId, baseUrl
       user.state = 'COLLECT_DETAILS';
       updateUser(mobile, user);
 
+      // Send MakeMyTrip screenshot upon selection
+      if (selected.screenshotUrl && user.data.baseUrl) {
+        const absoluteUrl = `${user.data.baseUrl}${selected.screenshotUrl}`;
+        console.log(`[Flow Controller]: Sending MMT selected flight screenshot to ${mobile}: ${absoluteUrl}`);
+        try {
+          const { sendImageMessage } = require('../services/whatsapp');
+          await sendImageMessage(mobile, absoluteUrl, `📸 Live MakeMyTrip fare confirmation for Option ${selection}!`);
+        } catch (imgErr) {
+          console.error("Failed to send selected MMT screenshot:", imgErr.message);
+        }
+      }
+
       const depTime = selected.flights[0]?.departure_airport?.time || 'N/A';
       const arrTime = selected.flights[selected.flights.length - 1]?.arrival_airport?.time || 'N/A';
       const durationHr = Math.floor((selected.total_duration || 0) / 60);
@@ -433,13 +445,13 @@ async function executeFlightSearchWorkflow(mobile, user) {
   try {
     const flights = await searchFlights(user.data);
 
-    // Send MMT search screenshot if available
+    // Send MMT search screenshot if available AND user originally sent an exact flight screenshot
     const screenshotFlight = flights?.find(f => f.screenshotUrl);
-    if (screenshotFlight && user.data.baseUrl) {
+    if (screenshotFlight && user.data.baseUrl && user.data.targetFlightDetails) {
       const absoluteUrl = `${user.data.baseUrl}${screenshotFlight.screenshotUrl}`;
-      console.log(`[Flow Controller]: Sending live search screenshot: ${absoluteUrl}`);
+      console.log(`[Flow Controller]: Sending live search screenshot for exact matched flight: ${absoluteUrl}`);
       try {
-        await sendImageMessage(mobile, absoluteUrl, "📸 Live MakeMyTrip search screenshot!");
+        await sendImageMessage(mobile, absoluteUrl, "📸 Live MakeMyTrip price matched for your flight!");
       } catch (err) {
         console.error("Failed to send screenshot:", err.message);
       }
