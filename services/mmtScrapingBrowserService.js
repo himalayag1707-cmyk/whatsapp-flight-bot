@@ -48,7 +48,7 @@ async function scrapeMMT(data) {
     console.log("[MMT Scraper]: Page loaded. Waiting for results...");
     
     try {
-        await page.waitForSelector('.listingCard, [class*="listingCard"], [id*="listing-card"]', { timeout: 15000 });
+        await page.waitForSelector('.listingCard, [class*="listingCard"], [id*="listing-card"], .fli-list, .clusterView, [class*="cluster"]', { timeout: 15000 });
     } catch (e) {
         console.log("[MMT Scraper]: Standard listingCard selector not found, attempting fallback wait.");
         await delay(5000);
@@ -69,7 +69,7 @@ async function scrapeMMT(data) {
     // Extract basic flight info for all cards
     let flights = await page.evaluate(() => {
         const results = [];
-        const cards = Array.from(document.querySelectorAll('.listingCard, [class*="listingCard"], [id*="listing-card"]'));
+        const cards = Array.from(document.querySelectorAll('.listingCard, [class*="listingCard"], [id*="listing-card"], .fli-list, .clusterView, [class*="cluster"]'));
         
         cards.forEach((card, index) => {
             try {
@@ -134,15 +134,22 @@ async function scrapeMMT(data) {
 
         try {
             // Re-select cards (DOM might have updated if we closed a modal)
-            const cards = await page.$$('.listingCard, [class*="listingCard"], [id*="listing-card"]');
-            if (!cards[flightIdx]) continue;
+            const cards = await page.$$('.listingCard, [class*="listingCard"], [id*="listing-card"], .fli-list, .clusterView, [class*="cluster"]');
+            if (!cards[flightIdx]) {
+                console.log(`[MMT Scraper]: Could not re-select card at index ${flightIdx}. Skipping flight.`);
+                continue;
+            }
             
             const card = cards[flightIdx];
             
             // 1. Click 'View Prices'
-            const viewPricesBtn = await card.$('button'); // usually the main primary button on the card
+            let viewPricesBtn = await card.$('.viewFareBtn, [class*="viewFare"], button, a.viewFareBtn'); 
             if (!viewPricesBtn) {
-                console.log("[MMT Scraper]: View Prices button not found.");
+                // Extreme fallback: click anywhere on the right side of the card
+                viewPricesBtn = await card.$('.priceSection, [class*="price"]');
+            }
+            if (!viewPricesBtn) {
+                console.log("[MMT Scraper]: View Prices button not found. Skipping flight.");
                 continue;
             }
             
@@ -156,15 +163,12 @@ async function scrapeMMT(data) {
             await delay(3000);
 
             // 2. Find 'Book Now' button in the expanded fare options
-            // Usually it's in a div that follows the card, or inside the card, or a modal
-            const bookNowBtns = await page.$$('button');
+            const bookNowBtns = await page.$$('button, a.bookNowBtn, [class*="bookBtn"]');
             let targetBookBtn = null;
             
-            // We need to find the specific "Book Now" button.
-            // On MMT, the button text is exactly "BOOK NOW"
             for (const btn of bookNowBtns) {
-                const text = await page.evaluate(el => el.innerText, btn);
-                if (text && text.toUpperCase().includes('BOOK NOW')) {
+                const text = await page.evaluate(el => el.innerText || el.value || '', btn);
+                if (text && (text.toUpperCase().includes('BOOK') || text.toUpperCase().includes('CONTINUE') || text.toUpperCase().includes('SELECT'))) {
                     targetBookBtn = btn;
                     break;
                 }

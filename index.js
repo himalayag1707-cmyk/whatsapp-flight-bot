@@ -80,9 +80,8 @@ app.post('/webhook', async (req, res) => {
 
     if (text || base64Image || mediaId) {
       console.log(`📩 Incoming message from ${from}: ${text?.substring(0, 50)}...`);
-      const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
       const host = req.get('host');
-      const baseUrl = `${protocol}://${host}`;
+      const baseUrl = `https://${host}`;
       await handleIncomingMessage(from, text, base64Image, mediaId, baseUrl);
     }
 
@@ -139,9 +138,8 @@ app.post('/api/whisper', async (req, res) => {
   const adminCommand = `WHISPER ${mobile} ${text}`;
   
   try {
-    const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
     const host = req.get('host');
-    const baseUrl = `${protocol}://${host}`;
+    const baseUrl = `https://${host}`;
     // We pass ADMIN_NUMBER and null media to signify this is a command from the admin
     await handleIncomingMessage(process.env.ADMIN_NUMBER || '918882783582', adminCommand, null, null, baseUrl);
     res.json({ success: true, message: "Whisper processed successfully" });
