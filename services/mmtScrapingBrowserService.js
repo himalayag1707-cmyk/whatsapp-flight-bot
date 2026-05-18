@@ -125,6 +125,7 @@ async function scrapeMMT(data) {
     }
 
     const finalFlights = [];
+    const searchResultsUrl = await page.url();
 
     // Deep Navigation Loop
     for (let i = 0; i < targetIndices.length; i++) {
@@ -175,14 +176,19 @@ async function scrapeMMT(data) {
                 isNewTab = true;
             } else {
                 // 2. Find 'Book Now' button in the expanded fare options
-                const bookNowBtns = await page.$$('button, a.bookNowBtn, [class*="bookBtn"]').catch(() => []);
+                // We scope the search strictly to the current card to avoid clicking another flight's button
+                const bookNowBtns = await card.$$('button, a, input').catch(() => []);
                 let targetBookBtn = null;
                 
                 for (const btn of bookNowBtns) {
                     const text = await page.evaluate(el => el.innerText || el.value || '', btn).catch(() => '');
-                    if (text && (text.toUpperCase().includes('BOOK') || text.toUpperCase().includes('CONTINUE') || text.toUpperCase().includes('SELECT'))) {
+                    const className = await page.evaluate(el => el.className || '', btn).catch(() => '');
+                    const cleanText = text.toUpperCase().trim();
+                    const cleanClass = className.toLowerCase();
+                    
+                    if (cleanText.includes('BOOK') || cleanText.includes('CONTINUE') || cleanText.includes('SELECT') || cleanClass.includes('booknow') || cleanClass.includes('farebtn')) {
                         targetBookBtn = btn;
-                        break;
+                        if (cleanText.includes('BOOK')) break; // Prefer explicit 'BOOK' text
                     }
                 }
 
@@ -247,7 +253,9 @@ async function scrapeMMT(data) {
                 await reviewPage.close().catch(() => {});
                 await page.bringToFront().catch(() => {});
             } else {
-                await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+                if (page.url() !== searchResultsUrl) {
+                    await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
+                }
             }
             
             await delay(2000); // Let main page settle before next iteration
