@@ -134,81 +134,89 @@ async function scrapeMMT(data) {
 
         try {
             // Re-select cards (DOM might have updated if we closed a modal)
-            const cards = await page.$$('.listingCard, [class*="listingCard"], [id*="listing-card"], .fli-list, .clusterView, [class*="cluster"]');
+            const cards = await page.$$('.listingCard, [class*="listingCard"], [id*="listing-card"], .fli-list, .clusterView, [class*="cluster"]').catch(() => []);
             if (!cards[flightIdx]) {
-                console.log(`[MMT Scraper]: Could not re-select card at index ${flightIdx}. Skipping flight.`);
+                console.log(`[MMT Scraper]: Could not re-select card at index ${flightIdx}. Skipping visual grab.`);
+                finalFlights.push(flightData);
                 continue;
             }
             
             const card = cards[flightIdx];
             
             // 1. Click 'View Prices'
-            let viewPricesBtn = await card.$('.viewFareBtn, [class*="viewFare"], button, a.viewFareBtn'); 
+            let viewPricesBtn = await card.$('.viewFareBtn, [class*="viewFare"], button, a.viewFareBtn').catch(() => null); 
             if (!viewPricesBtn) {
-                // Extreme fallback: click anywhere on the right side of the card
-                viewPricesBtn = await card.$('.priceSection, [class*="price"]');
+                viewPricesBtn = await card.$('.priceSection, [class*="price"]').catch(() => null);
             }
             if (!viewPricesBtn) {
-                console.log("[MMT Scraper]: View Prices button not found. Skipping flight.");
+                console.log("[MMT Scraper]: View Prices button not found. Skipping visual grab.");
+                finalFlights.push(flightData);
                 continue;
             }
             
-            // Scroll to card and click
-            await page.evaluate(el => el.scrollIntoView({block: "center"}), viewPricesBtn);
+            const pagesBeforeView = await browser.pages();
+            await page.evaluate(el => el.scrollIntoView({block: "center"}), viewPricesBtn).catch(() => {});
             await delay(1000);
-            await viewPricesBtn.click();
+            
+            // Click and catch if it destroys context or fails
+            await viewPricesBtn.click().catch(() => {});
             console.log("  -> Clicked 'View Prices'");
             
-            // Wait for fare modal/section
-            await delay(3000);
+            // Wait for fare modal/section OR new tab
+            await delay(4000);
 
-            // 2. Find 'Book Now' button in the expanded fare options
-            const bookNowBtns = await page.$$('button, a.bookNowBtn, [class*="bookBtn"]');
-            let targetBookBtn = null;
-            
-            for (const btn of bookNowBtns) {
-                const text = await page.evaluate(el => el.innerText || el.value || '', btn);
-                if (text && (text.toUpperCase().includes('BOOK') || text.toUpperCase().includes('CONTINUE') || text.toUpperCase().includes('SELECT'))) {
-                    targetBookBtn = btn;
-                    break;
-                }
-            }
-
-            if (!targetBookBtn) {
-                console.log("  -> 'Book Now' button not found in options. Skipping visual grab for this flight.");
-                continue;
-            }
-
-            // 3. Click 'Book Now' and intercept the new tab
-            const pagesBefore = await browser.pages();
-            await page.evaluate(el => el.scrollIntoView({block: "center"}), targetBookBtn);
-            await delay(500);
-            await targetBookBtn.click();
-            console.log("  -> Clicked 'Book Now'");
-            
-            await delay(5000); // Give MMT time to open new tab
-            
-            const pagesAfter = await browser.pages();
+            let pagesAfterView = await browser.pages();
             let reviewPage = null;
             let isNewTab = false;
 
-            if (pagesAfter.length > pagesBefore.length) {
-                reviewPage = pagesAfter[pagesAfter.length - 1]; // Latest opened tab
+            if (pagesAfterView.length > pagesBeforeView.length) {
+                console.log("  -> 'View Prices' immediately opened a new tab! Bypassing 'Book Now'.");
+                reviewPage = pagesAfterView[pagesAfterView.length - 1];
                 isNewTab = true;
-                console.log("  -> Detected new tab for Trip Summary.");
             } else {
-                // If it navigated in the same tab
-                reviewPage = page;
-                console.log("  -> Loaded Trip Summary in the same tab.");
+                // 2. Find 'Book Now' button in the expanded fare options
+                const bookNowBtns = await page.$$('button, a.bookNowBtn, [class*="bookBtn"]').catch(() => []);
+                let targetBookBtn = null;
+                
+                for (const btn of bookNowBtns) {
+                    const text = await page.evaluate(el => el.innerText || el.value || '', btn).catch(() => '');
+                    if (text && (text.toUpperCase().includes('BOOK') || text.toUpperCase().includes('CONTINUE') || text.toUpperCase().includes('SELECT'))) {
+                        targetBookBtn = btn;
+                        break;
+                    }
+                }
+
+                if (targetBookBtn) {
+                    const pagesBeforeBook = await browser.pages();
+                    await page.evaluate(el => el.scrollIntoView({block: "center"}), targetBookBtn).catch(() => {});
+                    await delay(500);
+                    await targetBookBtn.click().catch(() => {});
+                    console.log("  -> Clicked 'Book Now'");
+                    
+                    await delay(5000); // Give MMT time to open new tab
+                    
+                    const pagesAfterBook = await browser.pages();
+                    if (pagesAfterBook.length > pagesBeforeBook.length) {
+                        reviewPage = pagesAfterBook[pagesAfterBook.length - 1];
+                        isNewTab = true;
+                        console.log("  -> Detected new tab for Trip Summary.");
+                    } else {
+                        reviewPage = page;
+                        console.log("  -> Loaded Trip Summary in the same tab.");
+                    }
+                } else {
+                    console.log("  -> 'Book Now' button not found. Taking screenshot of current page as fallback.");
+                    reviewPage = page;
+                }
             }
 
             // 4. Prepare Review Page
-            await reviewPage.setViewport({ width: 1280, height: 1200 }); // Taller viewport for full summary
-            await reviewPage.bringToFront();
+            await reviewPage.setViewport({ width: 1280, height: 1200 }).catch(() => {}); 
+            await reviewPage.bringToFront().catch(() => {});
             
-            // Wait for core elements to render (e.g., Fare Summary block)
+            // Wait for core elements to render
             try {
-                await reviewPage.waitForSelector('.fareSummary, [class*="fareSummary"], .review-page, [class*="tripSummary"]', { timeout: 15000 });
+                await reviewPage.waitForSelector('.fareSummary, [class*="fareSummary"], .review-page, [class*="tripSummary"]', { timeout: 10000 });
             } catch (e) {
                 console.log("  -> Wait for review page elements timed out. Proceeding anyway.");
             }
@@ -218,11 +226,11 @@ async function scrapeMMT(data) {
                 const style = document.createElement('style');
                 style.type = 'text/css';
                 style.innerHTML = `
-                    .commonOverlay, [class*="overlay"], [class*="Popup"], [class*="Modal"], [class*="login"], [class*="insurance"] { display: none !important; }
+                    .commonOverlay, [class*="overlay"], [class*="Popup"], [class*="Modal"], [class*="login"], [class*="insurance"], [class*="FARE_RULES"] { display: none !important; }
                 `;
                 document.head.appendChild(style);
-            });
-            await delay(2000); // Wait for animations/popups to clear
+            }).catch(() => {});
+            await delay(2000);
 
             // 5. Take Screenshot
             const screenshotName = `mmt_summary_${fromCode}_${toCode}_${flightIdx}_${Date.now()}.png`;
@@ -236,8 +244,8 @@ async function scrapeMMT(data) {
 
             // 6. Cleanup Context
             if (isNewTab) {
-                await reviewPage.close();
-                await page.bringToFront();
+                await reviewPage.close().catch(() => {});
+                await page.bringToFront().catch(() => {});
             } else {
                 await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
             }
@@ -245,7 +253,7 @@ async function scrapeMMT(data) {
             await delay(2000); // Let main page settle before next iteration
 
         } catch (err) {
-            console.error(`  -> Failed deep navigation for Option ${i+1}:`, err.message);
+            console.log(`  -> Failed deep navigation for Option ${i+1}:`, err.message);
             // If it failed, we still want to add the text data as a fallback
             if (!flightData.screenshotUrl) {
                 finalFlights.push(flightData);
@@ -254,9 +262,9 @@ async function scrapeMMT(data) {
             try {
                 const currentPages = await browser.pages();
                 if (currentPages.length > 1) {
-                    await currentPages[currentPages.length - 1].close();
+                    await currentPages[currentPages.length - 1].close().catch(() => {});
                 }
-                await page.bringToFront();
+                await page.bringToFront().catch(() => {});
             } catch (e) {}
         }
     }
