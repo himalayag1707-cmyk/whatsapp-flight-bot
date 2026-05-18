@@ -40,7 +40,11 @@ async function scrapeMMT(data) {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 1000 });
     
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+    try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+    } catch (gotoErr) {
+        console.log("[MMT Scraper]: Page goto timed out or failed, but attempting to parse anyway...");
+    }
     console.log("[MMT Scraper]: Page loaded. Waiting for results...");
     
     try {
@@ -231,7 +235,7 @@ async function scrapeMMT(data) {
                 await reviewPage.close();
                 await page.bringToFront();
             } else {
-                await page.goBack({ waitUntil: 'networkidle2' });
+                await page.goBack({ waitUntil: 'domcontentloaded' }).catch(() => {});
             }
             
             await delay(2000); // Let main page settle before next iteration

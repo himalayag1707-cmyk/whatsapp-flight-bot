@@ -374,6 +374,7 @@ async function handleIncomingMessage(mobile, text, base64Image, mediaId, baseUrl
         if (aiResult.reply) {
             await sendBotMessage(aiResult.reply);
         }
+        await sendBotMessage("Give me a minute while I search for your flights... ⏳");
         await executeFlightSearchWorkflow(mobile, user);
         return;
       }
