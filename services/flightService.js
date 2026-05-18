@@ -2,8 +2,39 @@ const axios = require('axios');
 const { searchMystifly } = require('./mystiflyService');
 const { scrapeMMT } = require('./mmtScrapingBrowserService');
 
+function normalizeDate(dateStr) {
+  if (!dateStr) return null;
+  const clean = dateStr.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
+  
+  const dmyMatch = clean.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (dmyMatch) {
+    const [_, d, m, y] = dmyMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  
+  const ymdMatch = clean.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/);
+  if (ymdMatch) {
+    const [_, y, m, d] = ymdMatch;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  try {
+    const parsedDate = new Date(clean);
+    if (!isNaN(parsedDate.getTime())) {
+      return parsedDate.toISOString().split('T')[0];
+    }
+  } catch (e) {}
+
+  return clean;
+}
+
 async function searchFlights(data) {
   try {
+    if (data.date) {
+      data.date = normalizeDate(data.date);
+    }
+    console.log(`[Flight Service]: Searching for date: ${data.date}`);
     // ── 1. Mystifly Primary (Professional GDS Data) ─────────────────────────
     if (process.env.MYSTIFLY_USERNAME) {
       console.log(`[Flight Service]: Trying Mystifly for ${data.from} → ${data.to}`);
@@ -27,6 +58,8 @@ async function searchFlights(data) {
         }
       } catch (err) {
         console.error("[Flight Service]: Mystifly failed:", err.message);
+        data.searchErrors = data.searchErrors || [];
+        data.searchErrors.push(`Mystifly: ${err.message}`);
       }
     }
 
@@ -43,6 +76,8 @@ async function searchFlights(data) {
         }
       } catch (err) {
         console.error(`[Flight Service]: MakeMyTrip scraping failed:`, err.message);
+        data.searchErrors = data.searchErrors || [];
+        data.searchErrors.push(`MakeMyTrip Scraper: ${err.message}`);
       }
     }
 
@@ -64,7 +99,22 @@ async function searchFlights(data) {
 
     if (data.preference === 'Premium') params.travel_class = 3;
 
-    const res = await axios.get('https://serpapi.com/search.json', { params });
+    let res;
+    try {
+      res = await axios.get('https://serpapi.com/search.json', { params });
+    } catch (err) {
+      console.error('[Flight Service Error]: SerpApi failed:', err.message);
+      data.searchErrors = data.searchErrors || [];
+      data.searchErrors.push(`SerpApi: ${err.message}`);
+      return [];
+    }
+
+    if (!res || !res.data) {
+      data.searchErrors = data.searchErrors || [];
+      data.searchErrors.push(`SerpApi: Empty response`);
+      return [];
+    }
+
     const raw = [...(res.data.best_flights || []), ...(res.data.other_flights || [])];
 
     console.log(`[Flight Service]: SerpApi returned ${raw.length} raw results`);

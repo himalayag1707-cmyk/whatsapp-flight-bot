@@ -444,14 +444,31 @@ async function sendPaymentSummary(mobile, user, sendBotMessage) {
 async function executeFlightSearchWorkflow(mobile, user) {
   const { sendMessage, sendImageMessage } = require('../services/whatsapp');
   try {
+    user.data.searchErrors = [];
     const flights = await searchFlights(user.data);
 
     // Screenshots are now captured sequentially in the scraper and sent in sendFlightListResults
 
+    user.data.searchErrors = user.data.searchErrors || [];
     if (!flights || flights.length === 0) {
+      const errList = user.data.searchErrors.length > 0 
+        ? user.data.searchErrors.map(e => `• ${e}`).join('\n') 
+        : '• No explicit errors returned (Empty search result)';
+      
       user.state = 'ASK_ROUTE';
       updateUser(mobile, user);
+      
       await sendMessage(mobile, "😕 Sorry, I couldn't find any flights for that route/date. Please double check the cities and travel date.");
+      
+      // Notify Admin with exact technical explanation of the failure
+      const adminDiagnosticMsg = `🚨 *FLIGHT SEARCH FAILURE DIAGNOSTICS*\n` +
+        `📱 *User:* ${mobile}\n` +
+        `✈️ *Route:* ${user.data.from || 'N/A'} → ${user.data.to || 'N/A'}\n` +
+        `🗓️ *Date:* ${user.data.date || 'N/A'}\n` +
+        `👥 *Passengers:* ${user.data.passengers || 1}\n\n` +
+        `*❌ Technical Details:*\n${errList}`;
+        
+      await sendMessage(ADMIN_NUMBER, adminDiagnosticMsg);
       return;
     }
 
