@@ -1,0 +1,21 @@
+{
+  "name": "whatsapp-flight-bot",
+  "version": "2.0.0",
+  "description": "WhatsApp Flight Booking Bot with AI and Admin Dashboard",
+  "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "googleapis": "^140.0.1",
+    "openai": "^4.0.0",
+    "puppeteer-core": "^22.0.0"
+  }
+}
